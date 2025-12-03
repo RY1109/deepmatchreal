@@ -73,7 +73,12 @@ io.on('connection', (socket) => {
     });
 });
 
-// 启动服务器，监听 3000 端口
-server.listen(3000, () => {
-    console.log('服务器已启动: http://localhost:3000');
+// 原来的代码：
+// server.listen(3000, () => { ... });
+
+// === 修改为下面的代码 ===
+const PORT = process.env.PORT || 3000; // 优先使用云平台分配的端口，没有才用3000
+
+server.listen(PORT, () => {
+    console.log(`服务器已启动，监听端口: ${PORT}`);
 });
