@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>DeepMatch - 真实联网版</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- 引入 Socket.io 客户端库 (服务器会自动提供这个文件) -->
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        /* (保持原本的 CSS 样式不变，为了节省篇幅，这里复用了之前的样式) */
+        :root { --ds-blue: #4d6bfe; --ds-blue-hover: #3b5bdb; --bg-body: #f9fafe; --bg-card: #ffffff; --text-main: #1f2329; --text-secondary: #86909c; --border-light: #e5e6eb; --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08); --radius-lg: 16px; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
+        body { background-color: var(--bg-body); color: var(--text-main); height: 100vh; display: flex; justify-content: center; overflow: hidden; }
+        #app { width: 100%; max-width: 600px; height: 100%; background-color: var(--bg-card); position: relative; display: flex; flex-direction: column; box-shadow: var(--shadow-md); }
+        .page { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; flex-direction: column; background: var(--bg-card); z-index: 10; opacity: 0; transition: opacity 0.3s ease; }
+        .page.active { display: flex; opacity: 1; }
+        .home-container { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 30px; }
+        .brand-area { text-align: center; margin-bottom: 40px; }
+        .logo-text { font-size: 2rem; font-weight: 600; color: var(--text-main); letter-spacing: -0.5px; }
+        .logo-sub { color: var(--text-secondary); font-size: 0.95rem; margin-top: 5px; }
+        .prompt-box-wrapper { width: 100%; background: #fff; border: 1px solid var(--border-light); border-radius: var(--radius-lg); box-shadow: 0 2px 10px rgba(0,0,0,0.05); padding: 15px; transition: all 0.2s; position: relative; }
+        .prompt-box-wrapper:focus-within { border-color: var(--ds-blue); box-shadow: 0 0 0 3px rgba(77, 107, 254, 0.15); }
+        .prompt-textarea { width: 100%; border: none; outline: none; resize: none; font-size: 1rem; line-height: 1.5; min-height: 100px; color: var(--text-main); background: transparent; }
+        .prompt-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+        .model-tag { font-size: 0.75rem; color: var(--ds-blue); background: rgba(77, 107, 254, 0.1); padding: 4px 8px; border-radius: 6px; font-weight: 500; }
+        .btn-submit { background-color: var(--ds-blue); color: white; border: none; border-radius: 8px; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: background 0.2s; }
+        .btn-submit:hover { background-color: var(--ds-blue-hover); }
+        .reasoning-container { flex: 1; padding: 40px 25px; display: flex; flex-direction: column; }
+        .reasoning-status { font-size: 1.2rem; font-weight: 600; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+        .spinner { width: 20px; height: 20px; border: 2px solid rgba(77, 107, 254, 0.3); border-top-color: var(--ds-blue); border-radius: 50%; animation: spin 1s linear infinite; }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .thought-chain { background: #f7f8fa; border-radius: 12px; padding: 20px; font-family: 'Courier New', Courier, monospace; font-size: 0.85rem; color: #555; line-height: 1.6; flex: 1; overflow-y: auto; border-left: 3px solid var(--ds-blue); }
+        .log-item { margin-bottom: 8px; animation: fadeIn 0.3s forwards; }
+        .highlight { color: var(--ds-blue); font-weight: bold; }
+        .chat-header { height: 60px; border-bottom: 1px solid var(--border-light); display: flex; align-items: center; justify-content: space-between; padding: 0 15px; background: #fff; }
+        .chat-body { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 15px; }
+        .msg { max-width: 80%; padding: 12px 16px; border-radius: 12px; font-size: 0.95rem; line-height: 1.5; }
+        .msg.me { align-self: flex-end; background: var(--ds-blue); color: white; border-bottom-right-radius: 2px; }
+        .msg.other { align-self: flex-start; background: #f2f3f5; color: var(--text-main); border-bottom-left-radius: 2px; }
+        .input-bar { padding: 15px; background: #fff; display: flex; gap: 10px; border-top: 1px solid var(--border-light); }
+        .chat-input { flex: 1; background: #f7f8fa; border: none; padding: 12px; border-radius: 20px; outline: none; }
+    </style>
+</head>
+<body>
+
+    <div id="app">
+        <!-- 1. 首页 -->
+        <div id="page-home" class="page active">
+            <div class="home-container">
+                <div class="brand-area">
+                    <div class="logo-text">DeepMatch Live</div>
+                    <div class="logo-sub">真实在线匹配系统</div>
+                </div>
+                <div class="prompt-box-wrapper">
+                    <textarea id="userInput" class="prompt-textarea" placeholder="输入你想聊的游戏或话题..."></textarea>
+                    <div class="prompt-footer">
+                        <span class="model-tag">Online Mode</span>
+                        <button class="btn-submit" onclick="startMatching()" id="submitBtn"><i class="fas fa-arrow-up"></i></button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 2. 匹配页 -->
+        <div id="page-matching" class="page">
+            <div class="reasoning-container">
+                <div class="reasoning-status">
+                    <div class="spinner"></div>
+                    <span>正在搜索在线玩家...</span>
+                </div>
+                <div class="thought-chain" id="thoughtLog"></div>
+            </div>
+            <div style="padding: 20px; text-align: center;">
+                <button onclick="location.reload()" style="background:none; border:none; color:#888; cursor:pointer;">取消</button>
+            </div>
+        </div>
+
+        <!-- 3. 聊天页 -->
+        <div id="page-chat" class="page">
+            <header class="chat-header">
+                <i class="fas fa-chevron-left" onclick="location.reload()" style="cursor:pointer; color:#555;"></i>
+                <div style="text-align: center;">
+                    <div style="font-weight: 600;">匿名玩家</div>
+                    <div style="font-size: 0.75rem; color: #22c55e;">● 实时在线</div>
+                </div>
+                <i class="fas fa-ellipsis-h" style="color:#555;"></i>
+            </header>
+            <div class="chat-body" id="chatBody"></div>
+            <div class="input-bar">
+                <input type="text" class="chat-input" id="chatInput" placeholder="发送消息...">
+                <button onclick="sendMsg()" style="background:var(--ds-blue); color:white; border:none; width:36px; height:36px; border-radius:50%; cursor:pointer;"><i class="fas fa-paper-plane"></i></button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // === 1. 初始化 Socket 连接 ===
+        const socket = io();
+        let currentRoom = null;
+
+        // === 页面切换逻辑 ===
+        function showPage(pageId) {
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.getElementById(pageId).classList.add('active');
+        }
+
+        function addLog(text) {
+            const container = document.getElementById('thoughtLog');
+            const div = document.createElement('div');
+            div.className = 'log-item';
+            div.innerHTML = `> ${text}`;
+            container.appendChild(div);
+            container.scrollTop = container.scrollHeight;
+        }
+
+        // === 2. 开始匹配 ===
+        function startMatching() {
+            const input = document.getElementById('userInput').value.trim();
+            if(!input) return alert("请输入内容");
+
+            showPage('page-matching');
+            document.getElementById('thoughtLog').innerHTML = '';
+            
+            addLog(`正在连接服务器... (ID: ${socket.id})`);
+            addLog(`发送搜索意图: "${input}"`);
+
+            // 向服务器发送匹配请求
+            socket.emit('search_match', input);
+            addLog("正在等待其他玩家进入队列...");
+        }
+
+        // === 3. 监听：匹配成功 ===
+        socket.on('match_found', (data) => {
+            currentRoom = data.room; // 保存房间号
+            
+            addLog(`<span class="highlight">匹配成功！对方ID: ${data.partnerId.substr(0, 5)}...</span>`);
+            addLog("正在建立 P2P 聊天通道...");
+            
+            setTimeout(() => {
+                showPage('page-chat');
+                const chatBody = document.getElementById('chatBody');
+                chatBody.innerHTML = `<div style="text-align:center; font-size:0.8rem; color:#ccc; margin-bottom:10px;">已连接到房间: ${currentRoom}</div>`;
+            }, 1000);
+        });
+
+        // === 4. 发送消息 ===
+        function sendMsg() {
+            const input = document.getElementById('chatInput');
+            const text = input.value.trim();
+            if(!text) return;
+
+            // 显示自己的消息
+            const chatBody = document.getElementById('chatBody');
+            chatBody.innerHTML += `<div class="msg me">${text}</div>`;
+            chatBody.scrollTop = chatBody.scrollHeight;
+
+            // 发送给服务器 -> 转发给对方
+            socket.emit('chat_message', { room: currentRoom, msg: text });
+            
+            input.value = '';
+        }
+
+        // === 5. 监听：收到消息 ===
+        socket.on('message_received', (msg) => {
+            const chatBody = document.getElementById('chatBody');
+            chatBody.innerHTML += `<div class="msg other">${msg}</div>`;
+            chatBody.scrollTop = chatBody.scrollHeight;
+        });
+
+        // 回车发送
+        document.getElementById('chatInput').addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') sendMsg();
+        });
+
+    </script>
+</body>
+</html>
