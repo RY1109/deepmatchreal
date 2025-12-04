@@ -19,7 +19,7 @@ async function initAI() {
     const { pipeline } = await import('@xenova/transformers');
     // 加载一个轻量级的中文/多语言嵌入模型
     // 'Xenova/all-MiniLM-L6-v2' 是目前性价比最高的轻量模型
-    extractor = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+    extractor = await pipeline('feature-extraction', 'Xenova/bge-small-zh-v1.5');
     console.log("✅ AI 模型加载完成！准备进行语义匹配。");
 }
 
