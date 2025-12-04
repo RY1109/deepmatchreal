@@ -60,12 +60,25 @@ function scrollToBottom() {
     el.scrollTop = el.scrollHeight;
 }
 
-function renderMessage(text, type, time, avatar) {
+function renderMessage(text, type, time, avatarUrl) {
     const chatBody = document.getElementById('chatBody');
     const row = document.createElement('div');
+    
+    // type 是 'me' 或者 'other'
     row.className = `msg-row ${type}`;
-    let avatarHtml = type === 'other' ? `<div class="avatar"><img src="${avatar}"></div>` : '';
-    row.innerHTML = `${avatarHtml}<div><div class="msg-bubble">${text}</div><span class="msg-time">${time}</span></div>`;
+    
+    // 核心修改：无论 'me' 还是 'other'，HTML 结构都一样：先头像，再内容
+    // CSS 的 flex-direction: row-reverse 会自动帮我们把 'me' 的头像放到右边
+    row.innerHTML = `
+        <div class="avatar">
+            <img src="${avatarUrl}" alt="User Avatar">
+        </div>
+        <div class="msg-content">
+            <div class="bubble">${text}</div>
+            <span class="time-stamp">${time}</span>
+        </div>
+    `;
+    
     chatBody.appendChild(row);
     scrollToBottom();
 }
