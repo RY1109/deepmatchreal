@@ -77,6 +77,35 @@ io.on('connection', (socket) => {
     socket.on('chat_message', (d) => socket.to(d.room).emit('message_received', d));
     socket.on('typing', (d) => socket.to(d.room).emit('partner_typing', d.isTyping));
     socket.on('rejoin_room', (room) => socket.join(room));
+    // server.js
+
+    io.on('connection', (socket) => {
+        // ... 前面的代码 ...
+
+        // ✅ 新增：监听“即将断开”事件 (通知房间里的人)
+        socket.on('disconnecting', () => {
+            // socket.rooms 是一个 Set，包含该用户当前所在的所有房间
+            const rooms = Array.from(socket.rooms);
+            
+            rooms.forEach(room => {
+                // 排除掉自己的 ID 房间，只发给公共聊天室
+                if (room !== socket.id) {
+                    socket.to(room).emit('system_message', {
+                        type: 'system',
+                        textKey: 'partnerLeft' // 发送翻译的 Key，而不是死文字
+                    });
+                }
+            });
+        });
+
+        // 原有的 disconnect 逻辑保持不变
+        socket.on('disconnect', () => {
+            onlineCount--;
+            io.emit('online_count', onlineCount);
+            waitingQueue = waitingQueue.filter(u => u.id !== socket.id);
+            console.log(`➖ 用户断开: ${socket.id}`);
+        });
+    });
     
     socket.on('disconnect', () => {
         onlineCount--;

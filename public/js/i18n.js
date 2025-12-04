@@ -2,8 +2,14 @@
 window.translations = {
     zh: {
         appTitle: "DeepMatch",
+        // ✅ 新增副标题
+        appSubtitle: "AI 驱动的智能玩家匹配系统",
+        // ✅ 新增离开提示
+        partnerLeft: "对方已离开聊天室",
+        
+        // ... 原有的 ...
         onlineLabel: "当前在线",
-        inputPlaceholder: "输入话题，例如：有人一起玩黑神话吗？...",
+        inputPlaceholder: "输入话题...",
         btnStart: "开始匹配",
         loadingText: "正在寻找志同道合的伙伴...",
         btnCancel: "取消",
@@ -16,10 +22,16 @@ window.translations = {
         loadingPrefix: "正在寻找对",
         loadingSuffix: "感兴趣的伙伴...",
         matchTopic: "匹配成功！当前共同话题：",
-        btnExit: "结束聊天" // 新增
+        btnExit: "结束聊天"
     },
     en: {
         appTitle: "DeepMatch",
+        // ✅ 新增副标题英文
+        appSubtitle: "AI-Driven Smart Player Matching System",
+        // ✅ 新增离开提示英文
+        partnerLeft: "The partner has left the chat.",
+
+        // ... 原有的 ...
         onlineLabel: "Online Users",
         inputPlaceholder: "Type a topic...",
         btnStart: "Start Match",
@@ -34,6 +46,6 @@ window.translations = {
         loadingPrefix: "Looking for partners interested in",
         loadingSuffix: "...",
         matchTopic: "Match found! Common topic:",
-        btnExit: "End Chat" // 新增
+        btnExit: "End Chat"
     }
 };

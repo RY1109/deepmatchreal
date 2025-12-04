@@ -60,24 +60,31 @@ function scrollToBottom() {
     el.scrollTop = el.scrollHeight;
 }
 
+// 修改 renderMessage 函数
 function renderMessage(text, type, time, avatarUrl) {
     const chatBody = document.getElementById('chatBody');
     const row = document.createElement('div');
     
-    // type 是 'me' 或者 'other'
+    // 给 row 加上 type 类名 (me, other, 或者 system)
     row.className = `msg-row ${type}`;
     
-    // 核心修改：无论 'me' 还是 'other'，HTML 结构都一样：先头像，再内容
-    // CSS 的 flex-direction: row-reverse 会自动帮我们把 'me' 的头像放到右边
-    row.innerHTML = `
-        <div class="avatar">
-            <img src="${avatarUrl}" alt="User Avatar">
-        </div>
-        <div class="msg-content">
-            <div class="bubble">${text}</div>
-            <span class="time-stamp">${time}</span>
-        </div>
-    `;
+    if (type === 'system') {
+        // ✅ 系统消息特殊结构 (居中灰色文字)
+        row.innerHTML = `
+            <div class="msg-system-bubble">${text}</div>
+        `;
+    } else {
+        // 普通消息结构 (保持不变)
+        row.innerHTML = `
+            <div class="avatar">
+                <img src="${avatarUrl}" alt="User Avatar">
+            </div>
+            <div class="msg-content">
+                <div class="bubble">${text}</div>
+                <span class="time-stamp">${time}</span>
+            </div>
+        `;
+    }
     
     chatBody.appendChild(row);
     scrollToBottom();
@@ -122,6 +129,18 @@ socket.on('match_found', (data) => {
     document.getElementById('match-status').innerText = translations[currentLang].matchSuccess;
     document.getElementById('chatBody').innerHTML = `<div style="text-align: center; font-size: 0.8rem; color: #ccc; margin: 10px 0;">${translations[currentLang].matchTopic} <b>${data.keyword}</b></div>`;
     showPage('page-chat');
+});
+
+socket.on('system_message', (data) => {
+    // 根据当前语言获取文本
+    const t = window.translations[currentLang];
+    const text = t[data.textKey] || "系统消息";
+    
+    // 渲染一条系统样式的消息
+    renderMessage(text, 'system', '', '');
+    
+    // 可选：存入历史记录
+    appendMsg({ text: text, type: 'system', time: '' });
 });
 
 socket.on('message_received', (data) => {
