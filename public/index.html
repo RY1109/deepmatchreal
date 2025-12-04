@@ -56,37 +56,39 @@
 
         <!-- 3. 聊天页 (Chat) -->
         <div id="page-chat" class="page">
-            <!-- 聊天布局容器 -->
             <div class="chat-layout">
-                <!-- 2. 在聊天页头部，替换旧按钮 -->
                 <header class="chat-header">
                     <div class="user-meta">
-                        <img id="partner-avatar-img" class="avatar-lg" src="">
+                        <!-- ✅ 修复：使用 header-avatar 类来限制大小 -->
+                        <img id="partner-avatar-img" class="header-avatar" src="">
                         <div>
-                            <div style="font-weight: 700; font-size: 1.1rem; color: var(--text-main); max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" id="partner-name" data-i18n="partnerName">神秘玩家</div>
-                            <div style="font-size: 0.8rem; color: #22c55e;" id="match-status">● 在线</div>
+                            <div style="font-weight: 700; font-size: 1rem; color: var(--text-main); max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" 
+                                id="partner-name" data-i18n="partnerName">神秘玩家</div>
+                            <div style="font-size: 0.75rem; color: #22c55e; display:flex; align-items:center; gap:4px;">
+                                <span style="width:6px; height:6px; background:#22c55e; border-radius:50%; display:inline-block;"></span> 
+                                <span id="match-status">在线</span>
+                            </div>
                         </div>
                     </div>
                     
-                    <!-- ✅ 全新设计的退出按钮 -->
-                    <button class="btn-exit-pill" onclick="clearSession()">
-                        <i class="fas fa-power-off"></i>
-                        <span data-i18n="btnExit">结束聊天</span>
+                    <!-- ✅ 修复：全新的幽灵按钮样式 -->
+                    <button class="btn-end-chat" onclick="clearSession()">
+                        <span data-i18n="btnExit">结束对话</span>
+                        <i class="fas fa-sign-out-alt"></i>
                     </button>
                 </header>
 
                 <div class="chat-messages" id="chatBody"></div>
 
-                <div class="typing-status" id="typing-indicator">
-                    <div class="dot"></div><div class="dot"></div><div class="dot"></div> 
-                    <span data-i18n="typing">对方正在输入...</span>
+                <div class="typing-status" id="typing-indicator" style="position:absolute; bottom:80px; left:24px; font-size:0.75rem; color:#94a3b8; display:none;">
+                    <i class="fas fa-pen-nib"></i> <span data-i18n="typing">对方正在输入...</span>
                 </div>
 
                 <div class="chat-footer">
                     <div class="input-pill">
                         <input type="text" class="chat-input" id="chatInput" data-i18n-placeholder="chatPlaceholder" placeholder="发送消息..." autocomplete="off">
-                        <button class="btn-send-round" onclick="sendMsg()">
-                            <i class="fas fa-paper-plane"></i>
+                        <button class="btn-send-square" onclick="sendMsg()">
+                            <i class="fas fa-arrow-up"></i>
                         </button>
                     </div>
                 </div>
