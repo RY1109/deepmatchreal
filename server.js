@@ -7,78 +7,60 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// 1. 设置静态文件目录，让用户能访问到 HTML
 app.use(express.static(path.join(__dirname, 'public')));
 
-// 2. 简单的匹配队列
-let waitingUser = null; // 存储正在等待的用户
+let waitingUser = null;
+let onlineCount = 0; // 新增：在线人数统计
 
 io.on('connection', (socket) => {
-    console.log('有新用户连接:', socket.id);
+    // 1. 更新在线人数
+    onlineCount++;
+    io.emit('online_count', onlineCount); // 广播给所有人
 
-    // --- 监听：用户发起匹配请求 ---
+    // 2. 监听：寻找匹配
     socket.on('search_match', (keywords) => {
-        console.log(`用户 ${socket.id} 正在寻找: ${keywords}`);
-        
-        // 如果当前有别人在等待，且不是自己
         if (waitingUser && waitingUser.id !== socket.id) {
-            // === 匹配成功！ ===
             const roomID = 'room_' + Date.now();
             const partner = waitingUser;
 
-            // 1. 把两人加入同一个房间
             socket.join(roomID);
             partner.join(roomID);
 
-            // 2. 通知两人匹配成功
-            // 告诉当前用户 (socket)
-            socket.emit('match_found', { 
-                partnerId: partner.id, 
-                room: roomID,
-                role: 'initiator' 
-            });
-            // 告诉对方 (partner)
-            partner.emit('match_found', { 
-                partnerId: socket.id, 
-                room: roomID,
-                role: 'receiver'
-            });
+            // 分配随机头像种子
+            const seed1 = Math.floor(Math.random() * 1000);
+            const seed2 = Math.floor(Math.random() * 1000);
 
-            console.log(`匹配成功: ${socket.id} <-> ${partner.id} in ${roomID}`);
-            
-            // 清空等待队列
+            // 通知匹配成功 (带上头像种子)
+            socket.emit('match_found', { partnerId: partner.id, room: roomID, myAvatar: seed1, partnerAvatar: seed2 });
+            partner.emit('match_found', { partnerId: socket.id, room: roomID, myAvatar: seed2, partnerAvatar: seed1 });
+
             waitingUser = null;
-
         } else {
-            // === 没有人在等待，加入队列 ===
             waitingUser = socket;
-            console.log(`用户 ${socket.id} 加入等待队列...`);
         }
     });
 
-    // --- 监听：发送消息 ---
+    // 3. 监听：发送消息
     socket.on('chat_message', (data) => {
-        // data 包含: { room: '...', msg: '...' }
-        // 广播给房间里的其他人（除了自己）
-        socket.to(data.room).emit('message_received', data.msg);
+        socket.to(data.room).emit('message_received', data);
     });
 
-    // --- 监听：用户断开连接 ---
+    // 4. 新增：监听“正在输入”
+    socket.on('typing', (data) => {
+        socket.to(data.room).emit('partner_typing', data.isTyping);
+    });
+
+    // 5. 断开连接
     socket.on('disconnect', () => {
-        console.log('用户断开:', socket.id);
-        // 如果断开的人正好在排队，把队列清空
+        onlineCount--;
+        io.emit('online_count', onlineCount); // 更新人数
         if (waitingUser && waitingUser.id === socket.id) {
             waitingUser = null;
         }
     });
 });
 
-// 原来的代码：
-// server.listen(3000, () => { ... });
-
-// === 修改为下面的代码 ===
-const PORT = process.env.PORT || 3000; // 优先使用云平台分配的端口，没有才用3000
-
+const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`服务器已启动，监听端口: ${PORT}`);
+    console.log(`Server running on port ${PORT}`);
 });
