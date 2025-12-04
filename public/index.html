@@ -10,7 +10,8 @@
 <body>
     <div id="app">
         <!-- 顶部固定工具栏 -->
-        <div class="top-toolbar">
+        <!-- 1. 给顶部工具栏加 ID="topToolbar" -->
+        <div class="top-toolbar" id="topToolbar">
             <div class="tool-btn">
                 <i class="fas fa-user-friends" style="color: #22c55e;"></i>
                 <span id="online-count">1</span>
@@ -57,17 +58,20 @@
         <div id="page-chat" class="page">
             <!-- 聊天布局容器 -->
             <div class="chat-layout">
+                <!-- 2. 在聊天页头部，替换旧按钮 -->
                 <header class="chat-header">
                     <div class="user-meta">
                         <img id="partner-avatar-img" class="avatar-lg" src="">
                         <div>
-                            <div style="font-weight: 700; font-size: 1.1rem; color: var(--text-main);" id="partner-name" data-i18n="partnerName">神秘玩家</div>
+                            <div style="font-weight: 700; font-size: 1.1rem; color: var(--text-main); max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" id="partner-name" data-i18n="partnerName">神秘玩家</div>
                             <div style="font-size: 0.8rem; color: #22c55e;" id="match-status">● 在线</div>
                         </div>
                     </div>
                     
-                    <button class="btn-icon" onclick="clearSession()" title="退出">
+                    <!-- ✅ 全新设计的退出按钮 -->
+                    <button class="btn-exit-pill" onclick="clearSession()">
                         <i class="fas fa-power-off"></i>
+                        <span data-i18n="btnExit">结束聊天</span>
                     </button>
                 </header>
 
