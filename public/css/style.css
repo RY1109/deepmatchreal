@@ -174,6 +174,24 @@ textarea.main-input {
     display: flex; flex-direction: column; gap: 18px;
     background: #fff;
 }
+.chat-messages .avatar {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;  /* 关键：防止被文字挤扁 */
+    border-radius: 50%;
+    overflow: hidden; /* 裁剪多余部分 */
+    flex-shrink: 0;   /* 关键：禁止头像收缩 */
+    margin-right: 8px; /* 给气泡留点空隙 */
+    background-color: #f1f5f9; /* 头像加载前的底色 */
+}
+
+/* 2. 限制图片本身的大小 (最重要的一步) */
+.chat-messages .avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover; /* 保持比例填满 */
+    display: block;    /* 消除图片底部的微小空隙 */
+}
 .msg-wrapper { display: flex; gap: 12px; max-width: 85%; }
 .msg-wrapper.me { align-self: flex-end; flex-direction: row-reverse; }
 .msg-avatar { width: 32px; height: 32px; border-radius: 50%; }
