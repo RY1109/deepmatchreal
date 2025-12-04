@@ -19,6 +19,18 @@
         <!-- 断网提示 -->
         <div id="offline-tip" class="status-bar" data-i18n="offlineTip">网络已断开，正在尝试重连...</div>
 
+        <!-- 1. 给顶部工具栏加 ID="topToolbar" -->
+        <div class="top-toolbar" id="topToolbar">
+            <div class="tool-btn">
+                <i class="fas fa-user-friends" style="color: #22c55e;"></i>
+                <span id="online-count">1</span>
+            </div>
+            <div class="tool-btn" onclick="toggleLanguage()">
+                <i class="fas fa-globe"></i>
+                <span id="current-lang-text">EN</span>
+            </div>
+        </div>
+
         <!-- 1. 首页 -->
         <div id="page-home" class="page active">
             <div class="home-content">
@@ -45,19 +57,18 @@
         <!-- 3. 聊天页 -->
         <div id="page-chat" class="page">
             <header class="chat-header">
-                <div class="partner-info">
-                    <div class="avatar"><img id="partner-avatar-img" src=""></div>
+                <div class="user-meta">
+                    <img id="partner-avatar-img" class="avatar-lg" src="">
                     <div>
-                        <!-- 限制名字长度，防止撑破布局 -->
-                        <div style="font-weight: 600; max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" 
-                             id="partner-name" data-i18n="partnerName">神秘玩家</div>
-                        <div style="font-size: 0.75rem; color: #22c55e;" id="match-status">● 匹配成功</div>
+                        <div style="font-weight: 700; font-size: 1.1rem; color: var(--text-main); max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" id="partner-name" data-i18n="partnerName">神秘玩家</div>
+                        <div style="font-size: 0.8rem; color: #22c55e;" id="match-status">● 在线</div>
                     </div>
                 </div>
                 
-                <!-- ✅ 修改点：使用 btn-exit 样式的按钮，而不是单纯的图标 -->
-                <button class="btn-exit" onclick="clearSession()" title="退出聊天">
-                    <i class="fas fa-sign-out-alt"></i>
+                <!-- ✅ 全新设计的退出按钮 -->
+                <button class="btn-exit-pill" onclick="clearSession()">
+                    <i class="fas fa-power-off"></i>
+                    <span data-i18n="btnExit">结束聊天</span>
                 </button>
             </header>
 

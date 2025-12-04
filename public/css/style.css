@@ -208,3 +208,45 @@ textarea {
 .dot:nth-child(1) { animation-delay: -0.32s; }
 .dot:nth-child(2) { animation-delay: -0.16s; }
 @keyframes bounce { 0%, 80%, 100% { transform: scale(0); } 40% { transform: scale(1); } }
+
+
+/* --- public/css/style.css 新增/修改 --- */
+
+/* 1. 工具栏隐藏样式 */
+.top-toolbar.hidden {
+    display: none;
+}
+
+/* 2. 重设计退出按钮 (更醒目、防误触) */
+.btn-exit-pill {
+    background-color: #fee2e2; /* 浅红背景 */
+    color: #ef4444;             /* 深红文字 */
+    border: 1px solid #fecaca;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+}
+
+.btn-exit-pill:hover {
+    background-color: #ef4444;
+    color: white;
+    border-color: #ef4444;
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.3);
+}
+
+/* 手机端微调：防止按钮太大挤占名字空间 */
+@media (max-width: 768px) {
+    .btn-exit-pill span {
+        display: none; /* 手机上只显示图标，不显示文字 */
+    }
+    .btn-exit-pill {
+        padding: 8px; /* 变成圆形或方形 */
+        border-radius: 10px;
+    }
+}

@@ -15,7 +15,8 @@ window.translations = {
         offlineTip: "网络已断开，正在尝试重连...",
         loadingPrefix: "正在寻找对",
         loadingSuffix: "感兴趣的伙伴...",
-        matchTopic: "匹配成功！当前共同话题："
+        matchTopic: "匹配成功！当前共同话题：",
+        btnExit: "结束聊天" // 新增
     },
     en: {
         appTitle: "DeepMatch",
@@ -32,6 +33,7 @@ window.translations = {
         offlineTip: "Connection lost, reconnecting...",
         loadingPrefix: "Looking for partners interested in",
         loadingSuffix: "...",
-        matchTopic: "Match found! Common topic:"
+        matchTopic: "Match found! Common topic:",
+        btnExit: "End Chat" // 新增
     }
 };

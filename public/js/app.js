@@ -19,9 +19,22 @@ function appendMsg(msg) {
 }
 
 // === 界面操作 ===
+// public/js/app.js
+
 function showPage(id) {
+    // 1. 切换页面显示
     document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
     document.getElementById(id).classList.add('active');
+
+    // 2. ✅ 新增逻辑：控制顶部工具栏的显示/隐藏
+    const toolbar = document.getElementById('topToolbar');
+    if (id === 'page-chat') {
+        // 进聊天室了，隐藏右上角的语言切换，防止挡住退出按钮
+        toolbar.classList.add('hidden');
+    } else {
+        // 回到首页或加载页，显示工具栏
+        toolbar.classList.remove('hidden');
+    }
 }
 
 function updatePageText() {
