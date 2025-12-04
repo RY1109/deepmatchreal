@@ -21,43 +21,63 @@
     -webkit-tap-highlight-color: transparent;
 }
 
+/* 🟢 修复核心：锁定根元素，防止橡皮筋滚动 */
+html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden; /* 禁止浏览器默认滚动 */
+    position: fixed;  /* 强制固定，防止iOS回弹 */
+}
+
 body {
     background-color: var(--bg-body);
-    height: 100vh;
-    width: 100vw;
-    overflow: hidden;
     display: flex;
     justify-content: center;
 }
 
+/* 🟢 修复核心：APP 容器适配 */
 #app {
+    /* 手机默认样式 */
+    position: fixed; /* 锁死位置 */
+    top: 0;
+    left: 0;
     width: 100%;
-    height: 100%;
-    position: relative;
-    background: var(--bg-body);
+    
+    /* 关键：使用 dvh 适配动态地址栏，回退使用 100% */
+    height: 100%; 
+    height: 100dvh; 
+    
+    background: var(--bg-card);
     display: flex;
     flex-direction: column;
+    overflow: hidden;
 }
 
-/* === PC 端卡片模式 === */
+/* === 💻 PC 端卡片模式 (覆盖上面的手机样式) === */
 @media (min-width: 768px) {
     body {
+        position: static; /* PC端取消固定，允许背景图显示 */
         align-items: center;
         background-image: radial-gradient(#e2e8f0 1px, transparent 1px);
         background-size: 24px 24px;
+        overflow: hidden; 
     }
 
     #app {
-        width: 1200px; /* 更宽的视野 */
+        position: relative; /* PC端恢复相对定位 */
+        width: 1200px;
         height: 90vh;
         max-height: 950px;
         min-height: 600px;
         border-radius: 20px;
-        box-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.15);
+        box-shadow: 0 25px 60px -12px rgba(0, 0, 0, 0.18);
         border: 1px solid rgba(255,255,255,0.8);
         background: #fff;
     }
 }
+
+/* ... (以下 CSS 保持不变，请直接保留你之前的 .page, .top-toolbar 等代码) ... */
+/* ... 确保 .chat-messages 的 flex: 1 和 overflow-y: auto 还在 ... */
 
 /* 页面通用 */
 .page {
@@ -269,7 +289,11 @@ textarea.main-input {
 /* ... (后面的代码保持不变) ... */
 
 /* 3. 底部输入 */
-.chat-footer { padding: 16px 24px; background: #fff; border-top: 1px solid var(--border); }
+.chat-footer {
+    padding: 16px 24px; background: #fff; 
+    border-top: 1px solid var(--border); 
+    padding-bottom: max(16px, env(safe-area-inset-bottom));
+}
 .input-pill {
     background: #f8fafc; border: 1px solid var(--border);
     border-radius: 12px; padding: 6px 6px 6px 16px;
