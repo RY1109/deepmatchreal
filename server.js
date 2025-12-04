@@ -17,7 +17,7 @@ initAI();
 let waitingQueue = [];
 
 io.on('connection', (socket) => {
-    onlineCount++;
+    let onlineCount = io.engine.clientsCount;
     io.emit('online_count', onlineCount);
 
     socket.on('search_match', async (rawInput) => {
