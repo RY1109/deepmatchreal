@@ -8,21 +8,18 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <script src="/socket.io/socket.io.js"></script>
     <style>
-        /* --- 基础样式 --- */
+        /* --- 基础样式 (保持不变) --- */
         :root { --ds-blue: #4d6bfe; --bg-body: #f0f2f5; --bg-card: #ffffff; --text-main: #1f2329; --text-sub: #86909c; }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', sans-serif; -webkit-tap-highlight-color: transparent; }
         body { background-color: var(--bg-body); height: 100vh; display: flex; justify-content: center; overflow: hidden; }
         
         #app { width: 100%; max-width: 500px; height: 100%; background: var(--bg-card); position: relative; display: flex; flex-direction: column; box-shadow: 0 0 20px rgba(0,0,0,0.05); }
         
-        /* 页面切换动画 */
         .page { position: absolute; top: 0; left: 0; width: 100%; height: 100%; display: none; flex-direction: column; background: var(--bg-card); z-index: 10; opacity: 0; transition: opacity 0.3s ease; }
         .page.active { display: flex; opacity: 1; }
 
-        /* 顶部状态栏 */
         .status-bar { position: absolute; top: 0; width: 100%; padding: 5px; background: #ffe4e4; color: #d93025; font-size: 0.8rem; text-align: center; display: none; z-index: 999; }
 
-        /* 首页样式 */
         .home-content { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 30px; }
         .hero-title { font-size: 1.8rem; font-weight: 700; color: var(--text-main); margin-bottom: 10px; }
         .online-badge { background: #e6f7ff; color: var(--ds-blue); padding: 5px 12px; border-radius: 20px; font-size: 0.85rem; margin-bottom: 40px; font-weight: 500; }
@@ -31,7 +28,6 @@
         textarea { width: 100%; border: none; outline: none; resize: none; min-height: 80px; font-size: 1rem; }
         .btn-start { background: var(--ds-blue); color: white; border: none; padding: 10px 20px; border-radius: 8px; font-weight: 600; cursor: pointer; float: right; margin-top: 10px; }
 
-        /* 聊天页样式 */
         .chat-header { height: 60px; border-bottom: 1px solid #f0f0f0; display: flex; align-items: center; padding: 0 15px; justify-content: space-between; background: #fff; z-index: 20; }
         .partner-info { display: flex; align-items: center; gap: 10px; }
         .avatar { width: 36px; height: 36px; border-radius: 50%; background: #eee; overflow: hidden; }
@@ -46,7 +42,6 @@
         .msg-row.me .msg-bubble { background: var(--ds-blue); color: white; border-top-right-radius: 2px; }
         .msg-time { font-size: 0.7rem; margin-top: 4px; opacity: 0.7; text-align: right; display: block; }
 
-        /* 正在输入动画 */
         .typing-indicator { display: none; align-items: center; gap: 4px; margin-left: 46px; font-size: 0.75rem; color: var(--text-sub); margin-bottom: 10px; }
         .dot { width: 6px; height: 6px; background: #ccc; border-radius: 50%; animation: bounce 1.4s infinite ease-in-out both; }
         .dot:nth-child(1) { animation-delay: -0.32s; }
@@ -55,33 +50,48 @@
 
         .input-bar { padding: 12px; background: #fff; display: flex; gap: 10px; border-top: 1px solid #f0f0f0; align-items: flex-end; }
         .chat-input { flex: 1; background: #f5f7f9; border: none; padding: 10px 15px; border-radius: 20px; outline: none; max-height: 100px; }
+
+        /* --- 新增：语言切换按钮样式 --- */
+        .lang-switch {
+            position: absolute; top: 15px; right: 15px; z-index: 100;
+            background: #f0f2f5; padding: 5px 10px; border-radius: 20px;
+            font-size: 0.8rem; cursor: pointer; color: var(--text-sub);
+            font-weight: 600;
+        }
     </style>
 </head>
 <body>
     <div id="app">
+        <!-- 语言切换按钮 -->
+        <div class="lang-switch" onclick="toggleLanguage()">
+            <i class="fas fa-globe"></i> <span id="current-lang-text">EN</span>
+        </div>
+
         <!-- 网络断开提示 -->
-        <div id="offline-tip" class="status-bar">网络已断开，正在尝试重连...</div>
+        <div id="offline-tip" class="status-bar" data-i18n="offlineTip">网络已断开，正在尝试重连...</div>
 
         <!-- 1. 首页 -->
         <div id="page-home" class="page active">
             <div class="home-content">
-                <div class="hero-title">DeepMatch</div>
-                <div class="online-badge">🟢 当前在线: <span id="online-count">1</span> 人</div>
+                <div class="hero-title" data-i18n="appTitle">DeepMatch</div>
+                <div class="online-badge">🟢 <span data-i18n="onlineLabel">当前在线</span>: <span id="online-count">1</span></div>
                 
                 <div class="input-wrapper">
-                    <textarea id="userInput" placeholder="输入话题，例如：有人一起玩黑神话吗？..."></textarea>
+                    <textarea id="userInput" data-i18n-placeholder="inputPlaceholder" placeholder="输入话题，例如：有人一起玩黑神话吗？..."></textarea>
                     <div style="overflow: hidden;">
-                        <button class="btn-start" onclick="startMatching()">开始匹配 <i class="fas fa-paper-plane"></i></button>
+                        <button class="btn-start" onclick="startMatching()">
+                            <span data-i18n="btnStart">开始匹配</span> <i class="fas fa-paper-plane"></i>
+                        </button>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- 2. 匹配中 (Loading) -->
+        <!-- 2. 匹配中 -->
         <div id="page-loading" class="page" style="align-items: center; justify-content: center;">
             <i class="fas fa-circle-notch fa-spin" style="font-size: 2rem; color: var(--ds-blue);"></i>
-            <p style="margin-top: 20px; color: var(--text-sub);">正在寻找志同道合的伙伴...</p>
-            <button onclick="location.reload()" style="margin-top: 30px; border:none; background:none; color:#999;">取消</button>
+            <p style="margin-top: 20px; color: var(--text-sub);" id="loading-text" data-i18n="loadingText">正在寻找志同道合的伙伴...</p>
+            <button onclick="location.reload()" style="margin-top: 30px; border:none; background:none; color:#999;" data-i18n="btnCancel">取消</button>
         </div>
 
         <!-- 3. 聊天页 -->
@@ -90,25 +100,25 @@
                 <div class="partner-info">
                     <div class="avatar"><img id="partner-avatar-img" src=""></div>
                     <div>
-                        <div style="font-weight: 600;">神秘玩家</div>
-                        <div style="font-size: 0.75rem; color: #22c55e;">● 匹配成功</div>
+                        <div style="font-weight: 600;" id="partner-name" data-i18n="partnerName">神秘玩家</div>
+                        <div style="font-size: 0.75rem; color: #22c55e;" id="match-status">● 匹配成功</div>
                     </div>
                 </div>
                 <i class="fas fa-sign-out-alt" onclick="location.reload()" style="color: #999; cursor: pointer;"></i>
             </header>
 
             <div class="chat-body" id="chatBody">
-                <div style="text-align: center; font-size: 0.8rem; color: #ccc; margin: 10px 0;">
+                <div style="text-align: center; font-size: 0.8rem; color: #ccc; margin: 10px 0;" data-i18n="safeChannel">
                     安全加密通道已建立
                 </div>
             </div>
 
             <div class="typing-indicator" id="typing-indicator">
-                <div class="dot"></div><div class="dot"></div><div class="dot"></div> 对方正在输入...
+                <div class="dot"></div><div class="dot"></div><div class="dot"></div> <span data-i18n="typing">对方正在输入...</span>
             </div>
 
             <div class="input-bar">
-                <input type="text" class="chat-input" id="chatInput" placeholder="发消息..." autocomplete="off">
+                <input type="text" class="chat-input" id="chatInput" data-i18n-placeholder="chatPlaceholder" placeholder="发消息..." autocomplete="off">
                 <button onclick="sendMsg()" style="background:var(--ds-blue); color:white; border:none; width:36px; height:36px; border-radius:50%;"><i class="fas fa-arrow-up"></i></button>
             </div>
         </div>
@@ -121,7 +131,69 @@
         let partnerAvatarUrl = '';
         let typingTimeout = null;
 
-        // --- DiceBear 头像生成 API ---
+        // --- 国际化配置 (i18n) ---
+        let currentLang = 'zh'; // 默认中文
+
+        const translations = {
+            zh: {
+                appTitle: "DeepMatch",
+                onlineLabel: "当前在线",
+                inputPlaceholder: "输入话题，例如：有人一起玩黑神话吗？...",
+                btnStart: "开始匹配",
+                loadingText: "正在寻找志同道合的伙伴...",
+                btnCancel: "取消",
+                partnerName: "神秘玩家",
+                matchSuccess: "● 匹配成功",
+                safeChannel: "安全加密通道已建立",
+                typing: "对方正在输入...",
+                chatPlaceholder: "发消息...",
+                offlineTip: "网络已断开，正在尝试重连...",
+                loadingPrefix: "正在寻找对",
+                loadingSuffix: "感兴趣的伙伴...",
+                matchTopic: "匹配成功！当前共同话题："
+            },
+            en: {
+                appTitle: "DeepMatch",
+                onlineLabel: "Online Users",
+                inputPlaceholder: "Type a topic, e.g., Looking for League players...",
+                btnStart: "Start Match",
+                loadingText: "Looking for a partner...",
+                btnCancel: "Cancel",
+                partnerName: "Mystery User",
+                matchSuccess: "● Connected",
+                safeChannel: "Secure channel established",
+                typing: "Typing...",
+                chatPlaceholder: "Type a message...",
+                offlineTip: "Connection lost, reconnecting...",
+                loadingPrefix: "Looking for partners interested in",
+                loadingSuffix: "...",
+                matchTopic: "Match found! Common topic:"
+            }
+        };
+
+        function toggleLanguage() {
+            currentLang = currentLang === 'zh' ? 'en' : 'zh';
+            document.getElementById('current-lang-text').innerText = currentLang === 'zh' ? 'EN' : '中';
+            updatePageText();
+        }
+
+        function updatePageText() {
+            const t = translations[currentLang];
+            
+            // 1. 替换所有带 data-i18n 的普通文本
+            document.querySelectorAll('[data-i18n]').forEach(el => {
+                const key = el.getAttribute('data-i18n');
+                if (t[key]) el.innerText = t[key];
+            });
+
+            // 2. 替换所有输入框的 placeholder
+            document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+                const key = el.getAttribute('data-i18n-placeholder');
+                if (t[key]) el.placeholder = t[key];
+            });
+        }
+
+        // --- DiceBear API ---
         const getAvatar = (seed) => `https://api.dicebear.com/9.x/notionists/svg?seed=${seed}&backgroundColor=e6f7ff,ffe4e4,e6ffe6`;
 
         // 1. 监听在线人数
@@ -129,28 +201,51 @@
             document.getElementById('online-count').innerText = count;
         });
 
-        // 2. 网络状态监听
         socket.on('connect', () => { document.getElementById('offline-tip').style.display = 'none'; });
         socket.on('disconnect', () => { document.getElementById('offline-tip').style.display = 'block'; });
 
         // 3. 开始匹配
         function startMatching() {
             const input = document.getElementById('userInput').value.trim();
-            if(!input) return alert("写点什么吧！");
+            // 允许空输入(随机)
             
             showPage('page-loading');
+            
+            const t = translations[currentLang];
+            const topic = input ? `"${input}"` : (currentLang === 'zh' ? "随机" : "Random");
+            
+            // 动态更新 Loading 文字
+            document.getElementById('loading-text').innerHTML = 
+                `${t.loadingPrefix} <b>${topic}</b> ${t.loadingSuffix}`;
+
             socket.emit('search_match', input);
         }
 
         // 4. 匹配成功
         socket.on('match_found', (data) => {
             currentRoom = data.room;
-            // 生成双方头像
             myAvatarUrl = getAvatar(data.myAvatar);
             partnerAvatarUrl = getAvatar(data.partnerAvatar);
             
             document.getElementById('partner-avatar-img').src = partnerAvatarUrl;
+            
+            const t = translations[currentLang];
+            
+            // 更新状态栏
+            document.getElementById('match-status').innerText = t.matchSuccess;
+            
+            // 在聊天框插入系统消息
+            document.getElementById('chatBody').innerHTML = `
+                <div style="text-align: center; font-size: 0.8rem; color: #ccc; margin: 10px 0;">
+                    ${t.matchTopic} <b>${data.keyword}</b>
+                </div>
+            `;
+            
             showPage('page-chat');
+        });
+
+        socket.on('waiting_in_queue', (keyword) => {
+             console.log("Waiting in queue for:", keyword);
         });
 
         // 5. 发送消息
@@ -166,18 +261,14 @@
             input.value = '';
         }
 
-        // 6. 接收消息
         socket.on('message_received', (data) => {
-            document.getElementById('typing-indicator').style.display = 'none'; // 收到消息时隐藏正在输入
+            document.getElementById('typing-indicator').style.display = 'none';
             addMessage(data.msg, 'other', data.time, partnerAvatarUrl);
         });
 
-        // 7. 处理“正在输入”
         const chatInput = document.getElementById('chatInput');
         chatInput.addEventListener('input', () => {
             socket.emit('typing', { room: currentRoom, isTyping: true });
-            
-            // 防抖：停止输入1秒后发送停止信号
             clearTimeout(typingTimeout);
             typingTimeout = setTimeout(() => {
                 socket.emit('typing', { room: currentRoom, isTyping: false });
@@ -187,19 +278,14 @@
         socket.on('partner_typing', (isTyping) => {
             const indicator = document.getElementById('typing-indicator');
             indicator.style.display = isTyping ? 'flex' : 'none';
-            // 如果对方正在输入，自动滚动到底部，防止提示被挡住
             if(isTyping) scrollToBottom();
         });
 
-        // 工具函数：添加消息到 DOM
         function addMessage(text, type, time, avatar) {
             const chatBody = document.getElementById('chatBody');
             const row = document.createElement('div');
             row.className = `msg-row ${type}`;
-            
-            // 对方的消息需要显示头像
             let avatarHtml = type === 'other' ? `<div class="avatar"><img src="${avatar}"></div>` : '';
-            
             row.innerHTML = `
                 ${avatarHtml}
                 <div>
@@ -207,7 +293,6 @@
                     <span class="msg-time">${time}</span>
                 </div>
             `;
-            
             chatBody.appendChild(row);
             scrollToBottom();
         }
@@ -222,7 +307,6 @@
             document.getElementById(id).classList.add('active');
         }
         
-        // 回车发送
         chatInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter') sendMsg();
         });
