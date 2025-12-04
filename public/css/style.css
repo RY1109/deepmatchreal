@@ -48,9 +48,9 @@ body {
     }
 
     #app {
-        width: 1000px; /* 更宽的视野 */
-        height: 85vh;
-        max-height: 850px;
+        width: 1200px; /* 更宽的视野 */
+        height: 90vh;
+        max-height: 950px;
         min-height: 600px;
         border-radius: 20px;
         box-shadow: 0 20px 50px -12px rgba(0, 0, 0, 0.15);
