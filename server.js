@@ -64,7 +64,7 @@ io.on('connection', (socket) => {
         // 2. 遍历队列，计算 AI 相似度
         let bestMatchIndex = -1;
         let maxScore = -1;
-        const MATCH_THRESHOLD = 0.45; // 相似度门槛 (0.4 ~ 0.5 通常比较准)
+        const MATCH_THRESHOLD = 0.2; // 相似度门槛 (0.4 ~ 0.5 通常比较准)
 
         for (let i = 0; i < waitingQueue.length; i++) {
             const waiter = waitingQueue[i];
