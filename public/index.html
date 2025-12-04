@@ -2,6 +2,7 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
+    <!-- 关键：禁止缩放，保证移动端体验像原生App -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>DeepMatch Pro</title>
     <!-- 引入样式 -->
@@ -10,12 +11,15 @@
 </head>
 <body>
     <div id="app">
+        <!-- 语言切换 -->
         <div class="lang-switch" onclick="toggleLanguage()">
             <i class="fas fa-globe"></i> <span id="current-lang-text">EN</span>
         </div>
+        
+        <!-- 断网提示 -->
         <div id="offline-tip" class="status-bar" data-i18n="offlineTip">网络已断开，正在尝试重连...</div>
 
-        <!-- 首页 -->
+        <!-- 1. 首页 -->
         <div id="page-home" class="page active">
             <div class="home-content">
                 <div class="hero-title" data-i18n="appTitle">DeepMatch</div>
@@ -31,25 +35,30 @@
             </div>
         </div>
 
-        <!-- 加载页 -->
+        <!-- 2. 加载页 -->
         <div id="page-loading" class="page" style="align-items: center; justify-content: center;">
             <i class="fas fa-circle-notch fa-spin" style="font-size: 2rem; color: var(--ds-blue);"></i>
             <p style="margin-top: 20px; color: var(--text-sub);" id="loading-text" data-i18n="loadingText">正在寻找伙伴...</p>
             <button onclick="location.reload()" style="margin-top: 30px; border:none; background:none; color:#999;" data-i18n="btnCancel">取消</button>
         </div>
 
-        <!-- 聊天页 -->
+        <!-- 3. 聊天页 -->
         <div id="page-chat" class="page">
             <header class="chat-header">
                 <div class="partner-info">
                     <div class="avatar"><img id="partner-avatar-img" src=""></div>
                     <div>
-                        <div style="font-weight: 600;" id="partner-name" data-i18n="partnerName">神秘玩家</div>
+                        <!-- 限制名字长度，防止撑破布局 -->
+                        <div style="font-weight: 600; max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" 
+                             id="partner-name" data-i18n="partnerName">神秘玩家</div>
                         <div style="font-size: 0.75rem; color: #22c55e;" id="match-status">● 匹配成功</div>
                     </div>
                 </div>
-                <!-- 退出按钮 -->
-                <i class="fas fa-sign-out-alt" onclick="clearSession()" style="color: #999; cursor: pointer;"></i>
+                
+                <!-- ✅ 修改点：使用 btn-exit 样式的按钮，而不是单纯的图标 -->
+                <button class="btn-exit" onclick="clearSession()" title="退出聊天">
+                    <i class="fas fa-sign-out-alt"></i>
+                </button>
             </header>
 
             <div class="chat-body" id="chatBody"></div>
@@ -60,12 +69,15 @@
 
             <div class="input-bar">
                 <input type="text" class="chat-input" id="chatInput" data-i18n-placeholder="chatPlaceholder" placeholder="发消息..." autocomplete="off">
-                <button onclick="sendMsg()" style="background:var(--ds-blue); color:white; border:none; width:36px; height:36px; border-radius:50%;"><i class="fas fa-arrow-up"></i></button>
+                <!-- ✅ 修改点：使用 btn-send 类，去掉内联样式 -->
+                <button class="btn-send" onclick="sendMsg()">
+                    <i class="fas fa-arrow-up"></i>
+                </button>
             </div>
         </div>
     </div>
 
-    <!-- 脚本引入顺序很重要 -->
+    <!-- 脚本引入 -->
     <script src="/socket.io/socket.io.js"></script>
     <script src="js/i18n.js"></script>
     <script src="js/app.js"></script>
