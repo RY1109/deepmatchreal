@@ -1,13 +1,8 @@
 // ai-service.js
 
-// ==============================================================================
-// 1. 配置区域
-// 在本地测试时，你可以把 Key 填在 || 后面
-// 在 Render 部署时，请在后台 Environment Variables 里设置 SILICONFLOW_KEY
-// ==============================================================================
-const API_KEY = process.env.SILICONFLOW_KEY || "sk-请在这里填入你的真实密钥";
+// 🚨 调试重点：这里我们加了 .trim() 防止复制时带入空格
+const API_KEY = (process.env.SILICONFLOW_KEY || "sk-请在这里填入你的真实密钥").trim();
 
-// 硬规则字典 (保持不变，用于 100% 精准匹配)
 const HARD_RULES = {
     "游戏": ["英雄联盟", "原神", "csgo", "瓦罗兰特", "王者荣耀", "fps", "moba", "game", "黑神话", "steam"],
     "英雄联盟": ["游戏", "lol", "moba", "撸啊撸", "大乱斗"],
@@ -16,89 +11,91 @@ const HARD_RULES = {
     "聊天": ["交友", "摸鱼", "随便", "唠嗑"]
 };
 
-// 初始化 (API 模式不需要加载大文件)
+// 初始化
 async function initAI() {
-    if (!API_KEY || API_KEY.startsWith("sk-请在这里")) {
-        console.warn("⚠️ 警告: 未检测到有效的 API Key，AI 功能可能无法使用！");
-    } else {
-        console.log("☁️ 已连接 SiliconFlow 云端 AI 服务");
+    console.log("--------------- AI 服务启动检查 ---------------");
+    console.log(`[Step 0] 检查 Key: ${API_KEY ? "已配置 (长度:" + API_KEY.length + ")" : "❌ 未配置"}`);
+    if (API_KEY.startsWith("sk-请在这里")) {
+        console.error("❌ 警告：你忘记把默认的提示文字改成真实的 Key 了！");
     }
+    console.log("-----------------------------------------------");
 }
 
-// === 功能 1: 获取向量 (用于匹配) ===
-// 使用模型: BAAI/bge-m3 (目前最强中文语义向量)
+// 获取向量 (略简写，重点查下面对话)
 async function getVector(text) {
     if (!text) return null;
     try {
         const response = await fetch("https://api.siliconflow.cn/v1/embeddings", {
             method: "POST",
-            headers: { 
-                "Authorization": `Bearer ${API_KEY}`, 
-                "Content-Type": "application/json" 
-            },
-            body: JSON.stringify({
-                model: "BAAI/bge-m3", 
-                input: text, 
-                encoding_format: "float"
-            })
+            headers: { "Authorization": `Bearer ${API_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ model: "BAAI/bge-m3", input: text, encoding_format: "float" })
         });
-
-        if (!response.ok) {
-            console.error("向量 API 报错:", response.status, await response.text());
-            return null;
-        }
-
         const data = await response.json();
         return data.data?.[0]?.embedding || null;
-    } catch (e) {
-        console.error("向量接口网络错误:", e.message);
-        return null;
-    }
+    } catch (e) { return null; }
 }
 
-// === 功能 2: 获取 AI 陪聊回复 ===
-// 使用模型: Qwen/Qwen2.5-7B-Instruct (速度快、免费、效果好)
+// === 🚨 重点调试函数 ===
 async function getAIChatReply(messagesHistory) {
-    // 如果没有 Key，直接返回假装思考
-    if (!API_KEY || API_KEY.startsWith("sk-请在这里")) return "（管理员未配置 AI Key...）";
+    console.log("\n>>> [Step 1] 进入 getAIChatReply 函数");
+
+    // 1. 检查 Key
+    if (!API_KEY || API_KEY.startsWith("sk-请在这里")) {
+        console.log("<<< [退出] 原因：Key 无效");
+        return "（管理员未配置 AI Key）";
+    }
+
+    // 2. 准备数据
+    const payload = {
+        model: "Qwen/Qwen2.5-7B-Instruct", 
+        messages: messagesHistory,
+        max_tokens: 150,
+        temperature: 0.8
+    };
+    console.log(`[Step 2] 准备发送请求，历史消息条数: ${messagesHistory.length}`);
 
     try {
+        console.log("[Step 3] 正在通过 fetch 发送请求...");
+        
+        // 3. 发送请求
         const response = await fetch("https://api.siliconflow.cn/v1/chat/completions", {
             method: "POST",
             headers: { 
                 "Authorization": `Bearer ${API_KEY}`, 
                 "Content-Type": "application/json" 
             },
-            body: JSON.stringify({
-                model: "Qwen/Qwen2.5-7B-Instruct", // 7B 模型响应只需 1-2 秒，适合即时聊天
-                messages: messagesHistory,          // 把聊天记录(上下文)传过去
-                max_tokens: 150,                    // 限制回复长度
-                temperature: 0.8,                   // 0.8 比较活跃，0.2 比较死板
-                top_p: 0.9
-            })
+            body: JSON.stringify(payload)
         });
 
+        console.log(`[Step 4] 收到响应状态码: ${response.status} (${response.statusText})`);
+
+        // 4. 如果状态码不对，打印详细原因
         if (!response.ok) {
             const errText = await response.text();
-            console.error("对话 API 报错:", response.status, errText);
-            
-            // 针对余额不足的特殊处理
-            if (response.status === 402 || errText.includes("balance")) {
-                return "（我的算力耗尽了，老板忘记充值了...）";
-            }
-            return "（大脑短路了，请稍后再试）";
+            console.error("❌ [API 失败详情]:", errText); // <--- 这里一定要看！！！
+            return "（大脑短路了...API报错）";
         }
 
+        // 5. 解析数据
         const data = await response.json();
-        return data.choices?.[0]?.message?.content || "...";
+        console.log("[Step 5] JSON 解析成功");
+
+        if (!data.choices || data.choices.length === 0) {
+            console.error("❌ [数据异常] 返回的 choices 为空:", data);
+            return "（大脑一片空白...）";
+        }
+
+        const reply = data.choices[0].message.content;
+        console.log(`<<< [成功] AI 回复: "${reply.substring(0, 10)}..."`);
+        return reply;
 
     } catch (e) {
-        console.error("对话接口网络错误:", e.message);
-        return "（网络信号不好，断线了...）";
+        console.error("❌ [代码/网络 严重崩溃]:", e);
+        return "（网络连接断开了）";
     }
 }
 
-// === 功能 3: 匹配算法 (纯数学计算) ===
+// 匹配逻辑 (保持不变)
 function cosineSimilarity(vecA, vecB) {
     if (!vecA || !vecB) return 0;
     const dot = vecA.reduce((sum, a, i) => sum + a * vecB[i], 0);
@@ -110,24 +107,12 @@ function cosineSimilarity(vecA, vecB) {
 function calculateMatch(keywordA, keywordB, vecA, vecB) {
     const k1 = keywordA.toLowerCase();
     const k2 = keywordB.toLowerCase();
-    
-    // 1. 硬规则优先
     if (k1.includes(k2) || k2.includes(k1)) return { score: 0.99, type: 'rule' };
     for (let key in HARD_RULES) {
         const list = HARD_RULES[key];
-        if ((k1 === key && list.includes(k2)) || 
-            (k2 === key && list.includes(k1)) || 
-            (list.includes(k1) && list.includes(k2))) {
-            return { score: 0.99, type: 'rule' };
-        }
+        if ((k1 === key && list.includes(k2)) || (k2 === key && list.includes(k1)) || (list.includes(k1) && list.includes(k2))) return { score: 0.99, type: 'rule' };
     }
-
-    // 2. AI 向量匹配
-    if (vecA && vecB) {
-        const score = cosineSimilarity(vecA, vecB);
-        return { score: score, type: 'ai' };
-    }
-
+    if (vecA && vecB) return { score: cosineSimilarity(vecA, vecB), type: 'ai' };
     return { score: 0, type: 'none' };
 }
 
