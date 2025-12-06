@@ -6,7 +6,15 @@ console.log("App.js 成功加载了！");
 // const socket = io();
 
 // ✅ 修改为：
+let deviceId = localStorage.getItem('deepmatch_device_id');
+if (!deviceId) {
+    // 生成一个随机 ID
+    deviceId = 'user_' + Math.random().toString(36).substr(2, 9) + Date.now();
+    localStorage.setItem('deepmatch_device_id', deviceId);
+}
+
 const socket = io({
+    auth: { deviceId: deviceId },
     reconnection: true,           // 开启自动重连
     reconnectionAttempts: Infinity, // 无限次尝试重连
     reconnectionDelay: 1000,      // 初始间隔 1秒
@@ -14,6 +22,7 @@ const socket = io({
     timeout: 20000,               // 连接超时时间
     transports: ['websocket']     // 强制优先使用 WebSocket (更稳定)
 });
+
 let currentRoom = null;
 let currentLang = 'zh';
 let myAvatarUrl = '', partnerAvatarUrl = '';
