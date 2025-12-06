@@ -38,7 +38,7 @@ async function getAIChatReply(messagesHistory) {
             },
             body: JSON.stringify({
                 // 🔥 升级为 72B 模型，目前最强的中文开源模型，说话极其自然
-                model: "Qwen/Qwen2.5-72B-Instruct", 
+                model: "Qwen/Qwen2.5-7B-Instruct", 
                 messages: messagesHistory, // 把整个聊天记录发过去
                 max_tokens: 150, // 允许回复稍微长一点
                 temperature: 0.9, // 0.9 比较高，会让回复更有趣、不重复
