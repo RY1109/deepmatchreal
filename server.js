@@ -15,8 +15,8 @@ const CONFIG = {
     // 🟢 2. AI 向量匹配：设为 false 则只用关键词字面匹配 (省流、极速)
     ENABLE_VECTOR_MATCH: true,
 
-    // 🟢 3. 虚假在线人数：设为 true 则显示 100+ 在线，false 显示真实人数
-    FAKE_ONLINE_COUNT: true 
+    // 🔴 3. 虚假在线人数：设为 true 则显示 100+ 在线，false 显示真实人数
+    FAKE_ONLINE_COUNT: false
 };
 // ===============================================================
 
