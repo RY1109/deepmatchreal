@@ -2,8 +2,23 @@ const express = require('express');
 const http = require('http');
 const { Server } = require("socket.io");
 const path = require('path');
-// ✅ 引入新增的 getAIChatReply
+// 引入 ai-service，但在配置关闭时不调用它
 const { initAI, getVector, calculateMatch, getAIChatReply } = require('./ai-service');
+
+// ===============================================================
+// 🎛️ 全局功能开关 (修改这里即可控制功能)
+// ===============================================================
+const CONFIG = {
+    // 🔴 1. AI 聊天/陪聊机器人：设为 false 则彻底关闭，没人时一直排队
+    ENABLE_AI_BOT: false,
+
+    // 🟢 2. AI 向量匹配：设为 false 则只用关键词字面匹配 (省流、极速)
+    ENABLE_VECTOR_MATCH: true,
+
+    // 🟢 3. 虚假在线人数：设为 true 则显示 100+ 在线，false 显示真实人数
+    FAKE_ONLINE_COUNT: true 
+};
+// ===============================================================
 
 const app = express();
 const server = http.createServer(app);
@@ -16,37 +31,40 @@ const io = new Server(server, {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-console.log("正在初始化 AI 服务...");
-initAI().then(() => console.log("AI 服务准备就绪"));
+// 只有在开启任意 AI 功能时才初始化
+if (CONFIG.ENABLE_AI_BOT || CONFIG.ENABLE_VECTOR_MATCH) {
+    console.log("正在初始化 AI 服务...");
+    initAI().catch(e => console.error("AI 初始化失败(不影响主流程):", e));
+} else {
+    console.log("🔕 AI 功能已全部关闭，系统运行在【纯净模式】");
+}
 
-// ==========================================
-// 1. 数据结构
-// ==========================================
+// -----------------------------------------------------------
+
 let waitingQueue = []; 
 const userHistory = new Map();
 const MAX_HISTORY = 4; 
 const HISTORY_TTL = 12 * 60 * 60 * 1000; 
 
-// ✅ 新增：记录哪些房间是 AI 房间 (Set<RoomID>)
+// 机器人房间记录
 const BOT_ROOMS = new Set();
-let realConnectionCount = 0; // 真实连接数
+let realConnectionCount = 0; 
 
-// ==========================================
-// 2. 核心功能：虚假在线人数
-// ==========================================
-function broadcastFakeStats() {
-    // 算法：基础值(150) + 真实连接数 + 随机波动(0-30)
-    // 让人数看起来像是在 150 ~ 200 之间活跃
-    const fakeCount = 150 + realConnectionCount + Math.floor(Math.random() * 30);
-    io.emit('online_count', fakeCount);
+// === 1. 广播在线人数 (含造假逻辑) ===
+function broadcastStats() {
+    let count = realConnectionCount;
+    
+    if (CONFIG.FAKE_ONLINE_COUNT) {
+        // 基础 150 + 真实 + 随机波动 (让数字看起来是活的)
+        count = 150 + realConnectionCount + Math.floor(Math.random() * 35);
+    }
+    
+    io.emit('online_count', count);
 }
+// 每 5 秒刷新一次
+setInterval(broadcastStats, 5000);
 
-// 每 5 秒刷新一次假数据，制造“活跃”假象
-setInterval(broadcastFakeStats, 5000);
-
-// ==========================================
-// 3. 辅助函数
-// ==========================================
+// === 2. 辅助函数 ===
 function updateUserHistory(deviceId, keyword, vector) {
     if (!deviceId || !keyword) return;
     const now = Date.now();
@@ -57,7 +75,6 @@ function updateUserHistory(deviceId, keyword, vector) {
     userHistory.set(deviceId, history);
 }
 
-// 真人匹配执行
 function executeMatch(userA, userB, matchInfo) {
     const roomID = 'room_' + Date.now();
     
@@ -65,11 +82,12 @@ function executeMatch(userA, userB, matchInfo) {
     userB.socket.join(roomID);
 
     // 清理旧房间
-    Array.from(userB.socket.rooms).forEach(r => {
-        if(r !== userB.id && r !== roomID) userB.socket.leave(r);
+    [userA, userB].forEach(u => {
+        Array.from(u.socket.rooms).forEach(r => {
+            if(r !== u.id && r !== roomID) u.socket.leave(r);
+        });
     });
 
-    // 确保不是机器人房间
     BOT_ROOMS.delete(roomID);
 
     const s1 = Math.floor(Math.random() * 1000);
@@ -79,19 +97,18 @@ function executeMatch(userA, userB, matchInfo) {
     userA.socket.emit('match_found', { ...payload, partnerId: userB.id, myAvatar: s1, partnerAvatar: s2 });
     userB.socket.emit('match_found', { ...payload, partnerId: userA.id, myAvatar: s2, partnerAvatar: s1 });
     
-    console.log(`✅ 真人匹配: ${matchInfo}`);
+    console.log(`✅ 真人匹配成功: ${matchInfo}`);
 }
 
-// ✅ 新增：AI 机器人匹配执行
+// 机器人匹配 (只有开关开启时才会被调用)
 async function startBotMatch(userSocket, keyword) {
     const roomID = 'bot_' + Date.now();
     userSocket.join(roomID);
-    BOT_ROOMS.add(roomID); // 标记为 AI 房间
+    BOT_ROOMS.add(roomID);
 
     const s1 = Math.floor(Math.random() * 1000);
     const s2 = Math.floor(Math.random() * 1000);
 
-    // 假装匹配到了
     userSocket.emit('match_found', {
         partnerId: 'user_bot',
         room: roomID,
@@ -100,12 +117,13 @@ async function startBotMatch(userSocket, keyword) {
         keyword: `${keyword} (AI智能匹配)` 
     });
 
-    console.log(`🤖 AI接管: 用户 ${userSocket.id} -> 话题: ${keyword}`);
-
-    // AI 先发制人：延迟 1.5 秒打招呼
+    // AI 打招呼
     setTimeout(async () => {
-        // 让 AI 根据话题生成开场白
-        const greeting = await getAIChatReply("你好，刚连上，打个招呼", keyword);
+        let greeting = "你好呀，刚连上~";
+        try {
+            greeting = await getAIChatReply([{ role: "user", content: "打个招呼" }]);
+        } catch (e) {}
+        
         userSocket.emit('message_received', {
             msg: greeting,
             time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
@@ -114,32 +132,36 @@ async function startBotMatch(userSocket, keyword) {
 }
 
 // ==========================================
-// 4. Socket 主逻辑
+// Socket 主逻辑
 // ==========================================
 io.on('connection', (socket) => {
     realConnectionCount++;
     const deviceId = socket.handshake.auth.deviceId;
-
-    broadcastFakeStats(); // 连入时立即推送一次
+    
+    // 连入立即推送一次人数
+    broadcastStats(); 
     console.log(`➕ 连入: ${socket.id}`);
 
     socket.on('disconnect', () => {
         realConnectionCount--;
         waitingQueue = waitingQueue.filter(u => u.id !== socket.id);
-        // 如果断开的是机器人房间，稍微清理一下内存(Set自动清理string，其实不用特意操作)
     });
 
     socket.on('search_match', async (rawInput) => {
-        // 清理房间
+        // 离开旧房间
         Array.from(socket.rooms).forEach(r => { if (r !== socket.id) socket.leave(r); });
 
         const myKeyword = rawInput ? rawInput.trim() : "随便";
         let myVector = null;
-        try { myVector = await getVector(myKeyword); } catch (e) {}
 
-        if (deviceId && myVector) updateUserHistory(deviceId, myKeyword, myVector);
+        // 🟢 只有开启向量开关时，才去调用 API
+        if (CONFIG.ENABLE_VECTOR_MATCH) {
+            try { myVector = await getVector(myKeyword); } catch (e) {}
+        }
 
-        // --- 1. 尝试真人精准匹配 ---
+        if (deviceId) updateUserHistory(deviceId, myKeyword, myVector);
+
+        // --- 匹配核心逻辑 ---
         let bestIndex = -1;
         let maxScore = -1;
         let matchedInfoText = "";
@@ -148,11 +170,12 @@ io.on('connection', (socket) => {
             const waiter = waitingQueue[i];
             if (waiter.id === socket.id) continue;
 
-            // 比对当前词 + 历史记录 (这里保持你原有的逻辑不变)
+            // 调用 calculateMatch (如果你关了向量，它会自动只对比文本)
             let result = calculateMatch(myKeyword, waiter.keyword, myVector, waiter.vector);
             let currentBestScore = result.score;
             let currentTopic = `${myKeyword} & ${waiter.keyword}`;
 
+            // 历史记录逻辑
             if (currentBestScore < 0.5 && waiter.deviceId && userHistory.has(waiter.deviceId)) {
                 const historyList = userHistory.get(waiter.deviceId);
                 for (const hItem of historyList) {
@@ -165,6 +188,7 @@ io.on('connection', (socket) => {
                 }
             }
 
+            // 更新最佳匹配对象
             if (currentBestScore > maxScore && currentBestScore >= 0.5) {
                 maxScore = currentBestScore;
                 bestIndex = i;
@@ -172,91 +196,83 @@ io.on('connection', (socket) => {
             }
         }
 
+        // === 判定匹配结果 ===
         if (bestIndex !== -1) {
-            // 命中真人
+            // ✅ 匹配成功：从队列移除双方并开始聊天
             const partner = waitingQueue[bestIndex];
             waitingQueue = waitingQueue.filter(u => u.id !== socket.id && u.id !== partner.id);
+            
             executeMatch(
                 { id: socket.id, socket: socket, keyword: myKeyword },
                 partner,
-                `${matchedInfoText} (${Math.round(maxScore * 100)}%)`
+                `${matchedInfoText}`
             );
         } else {
-            // --- 2. 没命中，加入队列 ---
-            // 先清理旧的自己
+            // ⏳ 没匹配到：加入等待队列
+            
+            // 先清理旧的自己（防止重复入队）
             waitingQueue = waitingQueue.filter(u => u.id !== socket.id);
             
-            const myUserObj = { 
+            waitingQueue.push({ 
                 id: socket.id, deviceId, keyword: myKeyword, vector: myVector, 
                 socket: socket, startTime: Date.now() 
-            };
-            waitingQueue.push(myUserObj);
+            });
             
             socket.emit('waiting_in_queue', myKeyword);
-            console.log(`⏳ 入队: ${myKeyword}`);
+            console.log(`⏳ 入队等待: ${myKeyword}`);
 
-            // === 3. ⏰ 8秒超时逻辑 (核心修改) ===
+            // === 超时检查逻辑 ===
+            // 8秒后如果还在队列里，根据配置决定是否派机器人
             setTimeout(() => {
-                // 检查自己是否还在队列里 (没被别人匹配走，也没断开)
                 const meStillHere = waitingQueue.find(u => u.id === socket.id);
                 
-                if (meStillHere) {
-                    // 再次尝试寻找真人 (扩大搜索范围/强制匹配逻辑)
-                    // ... 这里省略了部分你原有的强制匹配真人的逻辑，简化为：
-                    // 如果哪怕强制也找不到真人，或者队列里只有我一个 -> 启动 AI
-                    
-                    let foundHuman = false;
-                    // (此处保留你原来的强制真人匹配逻辑，如果匹配成功 foundHuman = true)
-                    // 简便起见，如果队列人数 <= 1，直接判为无人
-                    
-                    if (waitingQueue.length <= 1) {
-                        // 💔 实在没真人了 -> 移除队列 -> 启动 AI
-                        waitingQueue = waitingQueue.filter(u => u.id !== socket.id);
-                        startBotMatch(socket, myKeyword);
-                    } else {
-                        // 还有其他人，保留你之前的强制匹配逻辑...
-                        // 如果强制匹配也失败，最终也是调用 startBotMatch
-                    }
-                }
-            }, 5000);
+                // 只有当 (1)人还在 (2)开启了AI机器人开关 时，才触发机器人
+                if (meStillHere && CONFIG.ENABLE_AI_BOT) {
+                    waitingQueue = waitingQueue.filter(u => u.id !== socket.id);
+                    startBotMatch(socket, myKeyword);
+                } 
+                // 如果 CONFIG.ENABLE_AI_BOT 为 false，用户就会一直留在队列里等待真人
+            }, 8000);
         }
     });
 
-    // === ✅ 修改：聊天消息监听 (区分真人/AI) ===
+    // === 聊天消息转发 ===
     socket.on('chat_message', async (data) => {
-        // data = { room, msg, time }
-        
+        // 判断是不是机器人房间
         if (BOT_ROOMS.has(data.room)) {
-            // ---> 这是一个 AI 房间
-            
-            // 1. 模拟对方(AI)正在输入
-            socket.emit('partner_typing', true);
+            // 🟢 AI 开启状态下，生成回复
+            if (CONFIG.ENABLE_AI_BOT) {
+                socket.emit('partner_typing', true);
+                
+                // 模拟延迟
+                setTimeout(async () => {
+                    let aiReply = "哈哈";
+                    try {
+                        // 简单的上下文构造
+                        aiReply = await getAIChatReply([{ role: "user", content: data.msg }]);
+                    } catch (e) {
+                        aiReply = "（网络波动...）";
+                    }
 
-            // 2. 随机延迟 1~3 秒，模仿人类思考
-            const delay = 1000 + Math.random() * 2000;
-            
-            // 3. 调用 AI 获取回复
-            // 这里的 "topic" 可以稍微模糊一点，或者存入 BOT_ROOMS 里
-            const aiReply = await getAIChatReply(data.msg, "聊天"); 
-
-            setTimeout(() => {
-                socket.emit('partner_typing', false); // 停止输入
-                socket.emit('message_received', { 
-                    msg: aiReply, 
-                    time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
-                });
-            }, delay);
-
+                    socket.emit('partner_typing', false);
+                    socket.emit('message_received', { 
+                        msg: aiReply, 
+                        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) 
+                    });
+                }, 1500);
+            } else {
+                // 如果中途把 AI 关了
+                socket.emit('message_received', { msg: "(系统: AI陪聊服务已暂停)", time: "System" });
+            }
         } else {
-            // ---> 真人房间，直接转发
+            // 🟢 真人房间，直接转发给对方
             socket.to(data.room).emit('message_received', data);
         }
     });
 
-    socket.on('typing', (data) => {
-        // 只有真人房间才转发 typing 事件，AI 房间的 typing 由上面控制
-        if (!BOT_ROOMS.has(data.room)) {
-            socket.to(data.room).emit('partner_typing', data);
+    socket.on('typing', (d) => {
+        if (!BOT_ROOMS.has(d.room)) {
+            socket.to(d.room).emit('partner_typing', d);
         }
     });
 
@@ -266,4 +282,5 @@ io.on('connection', (socket) => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
     console.log(`🚀 服务器运行中: http://localhost:${PORT}`);
+    console.log(`📋 当前配置: AI机器人[${CONFIG.ENABLE_AI_BOT ? '开' : '关'}] | 向量匹配[${CONFIG.ENABLE_VECTOR_MATCH ? '开' : '关'}] | 假人数[${CONFIG.FAKE_ONLINE_COUNT ? '开' : '关'}]`);
 });
