@@ -6,7 +6,22 @@ const { initAI, getVector, calculateMatch } = require('./ai-service');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+// server.js
+
+// 🔴 原来的代码：
+// const io = new Server(server);
+
+// ✅ 修改为：
+const io = new Server(server, {
+    // 心跳检测设置
+    pingTimeout: 60000, // 60秒没收到心跳才算断开 (默认是20秒，太短了)
+    pingInterval: 25000, // 每25秒发一次心跳包
+    // 允许跨域 (防止某些浏览器拦截)
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"]
+    }
+});
 
 app.use(express.static(path.join(__dirname, 'public')));
 

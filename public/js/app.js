@@ -1,6 +1,19 @@
 // public/js/app.js
 console.log("App.js 成功加载了！");
-const socket = io();
+// public/js/app.js
+
+// 🔴 原来的代码：
+// const socket = io();
+
+// ✅ 修改为：
+const socket = io({
+    reconnection: true,           // 开启自动重连
+    reconnectionAttempts: Infinity, // 无限次尝试重连
+    reconnectionDelay: 1000,      // 初始间隔 1秒
+    reconnectionDelayMax: 5000,   // 最长间隔 5秒
+    timeout: 20000,               // 连接超时时间
+    transports: ['websocket']     // 强制优先使用 WebSocket (更稳定)
+});
 let currentRoom = null;
 let currentLang = 'zh';
 let myAvatarUrl = '', partnerAvatarUrl = '';
@@ -114,8 +127,39 @@ function sendMsg() {
 
 // === Socket 监听 ===
 socket.on('online_count', (c) => document.getElementById('online-count').innerText = c);
-socket.on('connect', () => document.getElementById('offline-tip').style.display = 'none');
-socket.on('disconnect', () => document.getElementById('offline-tip').style.display = 'block');
+socket.on('connect', () => {
+    const tip = document.getElementById('offline-tip');
+    if (tip) {
+        tip.style.display = 'none';
+        tip.style.background = '#e6fffa'; // 连上时变绿一下
+        tip.innerText = '网络已连接';
+    }
+    
+    // 如果之前是在聊天室里掉线的，尝试重新加入
+    if (currentRoom) {
+        socket.emit('rejoin_room', currentRoom);
+    }
+});
+
+socket.on('disconnect', (reason) => {
+    // 如果是服务器端主动断开（比如重启），或者客户端网络问题
+    if (reason === "io server disconnect" || reason === "transport close") {
+        const tip = document.getElementById('offline-tip');
+        if (tip) {
+            tip.innerText = '网络信号弱，正在努力重连...';
+            tip.style.background = '#fff3cd'; // 黄色警告，比红色温和
+            tip.style.color = '#856404';
+            tip.style.display = 'block';
+        }
+        // 手动触发重连
+        socket.connect();
+    }
+});
+
+// 监听重连尝试
+socket.io.on("reconnect_attempt", () => {
+    console.log("正在尝试重连...");
+});
 
 socket.on('match_found', (data) => {
     currentRoom = data.room;
