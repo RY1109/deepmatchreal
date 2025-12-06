@@ -1,7 +1,6 @@
 // ai-service.js
-const API_KEY = process.env.SILICONFLOW_KEY; // 确保 Render 环境变量里配置了
+const API_KEY = process.env.SILICONFLOW_KEY; // 确保 Render 环境变量已配置
 
-// 硬规则 (保持不变)
 const HARD_RULES = {
     "游戏": ["英雄联盟", "原神", "csgo", "瓦罗兰特", "王者荣耀", "fps", "moba", "game", "黑神话"],
     "英雄联盟": ["游戏", "lol", "moba", "撸啊撸", "大乱斗"],
@@ -9,12 +8,11 @@ const HARD_RULES = {
     "编程": ["写代码", "程序员", "前端", "后端", "js", "java"]
 };
 
-// 初始化
 async function initAI() {
-    console.log("☁️ AI 服务已连接 (SiliconFlow)");
+    console.log("☁️ 已连接 SiliconFlow (Qwen2.5-72B 旗舰版)...");
 }
 
-// 1. 获取向量 (用于匹配，保持不变)
+// 1. 获取向量 (保持不变)
 async function getVector(text) {
     if (!text) return null;
     try {
@@ -25,47 +23,43 @@ async function getVector(text) {
         });
         const data = await response.json();
         return data.data?.[0]?.embedding || null;
-    } catch (e) { console.error("向量接口出错:", e); return null; }
+    } catch (e) { return null; }
 }
 
-// 2. 【新增】获取 AI 回复 (用于陪聊)
-// 使用免费且强大的 Qwen/Qwen2.5-7B-Instruct 模型
-async function getAIChatReply(message, topic) {
+// 2. 【核心修改】获取 AI 回复 (支持上下文记忆)
+// messages 参数现在是一个数组：[{role: 'user', content: '...'}, ...]
+async function getAIChatReply(messagesHistory) {
     try {
         const response = await fetch("https://api.siliconflow.cn/v1/chat/completions", {
             method: "POST",
-            headers: { "Authorization": `Bearer ${API_KEY}`, "Content-Type": "application/json" },
+            headers: { 
+                "Authorization": `Bearer ${API_KEY}`, 
+                "Content-Type": "application/json" 
+            },
             body: JSON.stringify({
-                model: "Qwen/Qwen2.5-7B-Instruct", // 选用通义千问开源版，速度快，中文好
-                messages: [
-                    { 
-                        role: "system", 
-                        content: `你现在正在一个匿名聊天室里扮演一位真实用户。
-                        你的当前兴趣话题是"${topic}"。
-                        请遵循以下规则：
-                        1. 说话要简短、口语化，像个真实的网友，不要像机器人。
-                        2. 多围绕当前兴趣话题进行聊天，表现出兴趣和热情。
-                        3. 遇到敏感话题要巧妙转移话题。
-                        4. 严禁暴露自己是AI。
-                        5. 回复中不要包含任何AI、机器人等字眼。
-                        6. 回复中不要包含任何广告、推广等内容。
-                        7.不要出现重复的回复。` 
-                    },
-                    { role: "user", content: message }
-                ],
-                max_tokens: 100, // 回复不要太长
-                temperature: 0.7 // 增加一点随机性
+                // 🔥 升级为 72B 模型，目前最强的中文开源模型，说话极其自然
+                model: "Qwen/Qwen2.5-72B-Instruct", 
+                messages: messagesHistory, // 把整个聊天记录发过去
+                max_tokens: 150, // 允许回复稍微长一点
+                temperature: 0.9, // 0.9 比较高，会让回复更有趣、不重复
+                top_p: 0.9
             })
         });
+
         const data = await response.json();
-        return data.choices?.[0]?.message?.content || "哈哈，不知道怎么回你了";
+        if (!data.choices) {
+            console.error("AI 接口返回异常:", data);
+            return "（对方正在思考...）";
+        }
+        return data.choices[0].message.content;
+
     } catch (e) {
-        console.error("AI 对话接口出错:", e);
-        return "网络有点卡，等会聊~";
+        console.error("AI 接口报错:", e);
+        return "网络波动了一下...";
     }
 }
 
-// 匹配计算 (保持不变)
+// 匹配逻辑 (保持不变)
 function cosineSimilarity(vecA, vecB) {
     if (!vecA || !vecB) return 0;
     const dot = vecA.reduce((sum, a, i) => sum + a * vecB[i], 0);
