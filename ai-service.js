@@ -1,7 +1,7 @@
 // ai-service.js
 
-// 🚨 调试重点：这里我们加了 .trim() 防止复制时带入空格
-const API_KEY = (process.env.SILICONFLOW_KEY || "sk-请在这里填入你的真实密钥").trim();
+// 你的 API Key
+const API_KEY = process.env.SILICONFLOW_KEY || "sk-请在这里填入你的真实密钥"; 
 
 const HARD_RULES = {
     "游戏": ["英雄联盟", "原神", "csgo", "瓦罗兰特", "王者荣耀", "fps", "moba", "game", "黑神话", "steam"],
@@ -11,20 +11,23 @@ const HARD_RULES = {
     "聊天": ["交友", "摸鱼", "随便", "唠嗑"]
 };
 
-// 初始化
+// === 备用模型列表 (按优先顺序) ===
+const BACKUP_MODELS = [
+    "Qwen/Qwen2.5-7B-Instruct", // 首选：最新版 7B
+    "Qwen/Qwen2-7B-Instruct",   // 备选1：老版 7B (通常比较空)
+    "THUDM/chatglm3-6b",        // 备选2：智谱 6B (非常稳定)
+    "01-ai/Yi-1.5-6B-Chat"      // 备选3：零一万物 6B
+];
+
 async function initAI() {
-    console.log("--------------- AI 服务启动检查 ---------------");
-    console.log(`[Step 0] 检查 Key: ${API_KEY ? "已配置 (长度:" + API_KEY.length + ")" : "❌ 未配置"}`);
-    if (API_KEY.startsWith("sk-请在这里")) {
-        console.error("❌ 警告：你忘记把默认的提示文字改成真实的 Key 了！");
-    }
-    console.log("-----------------------------------------------");
+    console.log("☁️ AI 服务已就绪 (支持自动故障转移)");
 }
 
-// 获取向量 (略简写，重点查下面对话)
+// 向量获取 (保持不变)
 async function getVector(text) {
     if (!text) return null;
     try {
+        // 向量模型比较稳定，一般不需要切换，如果 bge-m3 挂了可以用 bge-large-zh
         const response = await fetch("https://api.siliconflow.cn/v1/embeddings", {
             method: "POST",
             headers: { "Authorization": `Bearer ${API_KEY}`, "Content-Type": "application/json" },
@@ -35,64 +38,55 @@ async function getVector(text) {
     } catch (e) { return null; }
 }
 
-// === 🚨 重点调试函数 ===
+// === 核心修改：支持自动切换模型的聊天函数 ===
 async function getAIChatReply(messagesHistory) {
-    console.log("\n>>> [Step 1] 进入 getAIChatReply 函数");
+    if (!API_KEY || API_KEY.startsWith("sk-请在这里")) return "（Key配置错误）";
 
-    // 1. 检查 Key
-    if (!API_KEY || API_KEY.startsWith("sk-请在这里")) {
-        console.log("<<< [退出] 原因：Key 无效");
-        return "（管理员未配置 AI Key）";
+    // 循环尝试备用模型列表
+    for (const modelName of BACKUP_MODELS) {
+        try {
+            console.log(`🤖 尝试使用模型: ${modelName} ...`);
+            
+            const response = await fetch("https://api.siliconflow.cn/v1/chat/completions", {
+                method: "POST",
+                headers: { 
+                    "Authorization": `Bearer ${API_KEY}`, 
+                    "Content-Type": "application/json" 
+                },
+                body: JSON.stringify({
+                    model: modelName, // 动态使用当前尝试的模型
+                    messages: messagesHistory,
+                    max_tokens: 150,
+                    temperature: 0.8
+                })
+            });
+
+            // 如果是 503 (服务繁忙) 或 429 (限流)，则抛出错误进入 catch，尝试下一个
+            if (response.status === 503 || response.status === 429) {
+                console.warn(`⚠️ 模型 ${modelName} 繁忙 (Status ${response.status})，尝试切换下一个...`);
+                continue; // 跳过当前循环，试下一个
+            }
+
+            if (!response.ok) {
+                const err = await response.text();
+                console.error(`❌ 模型 ${modelName} 报错:`, err);
+                break; // 如果是其他错误(如Key错)，不用试了，直接退出
+            }
+
+            const data = await response.json();
+            const reply = data.choices?.[0]?.message?.content;
+            if (reply) {
+                console.log(`✅ 成功使用 ${modelName} 回复`);
+                return reply;
+            }
+
+        } catch (e) {
+            console.error(`❌ 网络错误 (${modelName}):`, e.message);
+        }
     }
 
-    // 2. 准备数据
-    const payload = {
-        model: "Qwen/Qwen2.5-7B-Instruct", 
-        messages: messagesHistory,
-        max_tokens: 150,
-        temperature: 0.8
-    };
-    console.log(`[Step 2] 准备发送请求，历史消息条数: ${messagesHistory.length}`);
-
-    try {
-        console.log("[Step 3] 正在通过 fetch 发送请求...");
-        
-        // 3. 发送请求
-        const response = await fetch("https://api.siliconflow.cn/v1/chat/completions", {
-            method: "POST",
-            headers: { 
-                "Authorization": `Bearer ${API_KEY}`, 
-                "Content-Type": "application/json" 
-            },
-            body: JSON.stringify(payload)
-        });
-
-        console.log(`[Step 4] 收到响应状态码: ${response.status} (${response.statusText})`);
-
-        // 4. 如果状态码不对，打印详细原因
-        if (!response.ok) {
-            const errText = await response.text();
-            console.error("❌ [API 失败详情]:", errText); // <--- 这里一定要看！！！
-            return "（大脑短路了...API报错）";
-        }
-
-        // 5. 解析数据
-        const data = await response.json();
-        console.log("[Step 5] JSON 解析成功");
-
-        if (!data.choices || data.choices.length === 0) {
-            console.error("❌ [数据异常] 返回的 choices 为空:", data);
-            return "（大脑一片空白...）";
-        }
-
-        const reply = data.choices[0].message.content;
-        console.log(`<<< [成功] AI 回复: "${reply.substring(0, 10)}..."`);
-        return reply;
-
-    } catch (e) {
-        console.error("❌ [代码/网络 严重崩溃]:", e);
-        return "（网络连接断开了）";
-    }
+    // 如果所有模型都试完了还在报错
+    return "（所有 AI 都在忙，请稍等几秒再发...）";
 }
 
 // 匹配逻辑 (保持不变)
