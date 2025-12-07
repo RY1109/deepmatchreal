@@ -110,6 +110,67 @@ function renderMessage(text, type, time, avatarUrl) {
     chatBody.appendChild(row);
     scrollToBottom();
 }
+// ==========================================
+// 8. 补全：通知卡片 UI 逻辑
+// ==========================================
+function showInviteNotification(data) {
+    const container = document.getElementById('notification-area');
+    if (!container) {
+        console.error("❌ HTML 中缺少 id='notification-area' 的容器！");
+        return;
+    }
+
+    const card = document.createElement('div');
+    card.className = 'invite-card';
+    
+    // 内容
+    card.innerHTML = `
+        <div class="title">👋 发现共同话题</div>
+        <div class="info">有人正在聊 <b>${data.topic}</b>，是否加入？</div>
+        <div class="invite-actions">
+            <button class="btn-accept">立即加入</button>
+            <button class="btn-decline">忽略</button>
+        </div>
+    `;
+
+    // 绑定事件
+    const btnAccept = card.querySelector('.btn-accept');
+    const btnDecline = card.querySelector('.btn-decline');
+
+    // 接受
+    btnAccept.onclick = () => {
+        socket.emit('accept_invite', { inviterId: data.inviterId });
+        closeCard();
+        // 视觉反馈
+        showPage('page-loading');
+        const loadingText = document.getElementById('loading-text');
+        if (loadingText) loadingText.innerText = "正在连接对方...";
+    };
+
+    // 拒绝
+    btnDecline.onclick = () => {
+        socket.emit('decline_invite', { inviterId: data.inviterId });
+        closeCard();
+    };
+
+    function closeCard() {
+        // 添加退出动画（需要在 CSS 定义 fadeOutRight，如果没有定义直接 remove 也可以）
+        card.style.transition = 'opacity 0.3s, transform 0.3s';
+        card.style.opacity = '0';
+        card.style.transform = 'translateX(100%)';
+        setTimeout(() => card.remove(), 300);
+    }
+
+    // 15秒后自动关闭
+    setTimeout(() => { 
+        if(document.body.contains(card)) closeCard(); 
+    }, 15000);
+
+    container.appendChild(card);
+}
+
+// ✅ 关键：挂载到 window，这样你在控制台输入 showInviteNotification 也能测试了
+window.showInviteNotification = showInviteNotification;
 
 // ==========================================
 // 5. 核心业务逻辑 (挂载到 window)
