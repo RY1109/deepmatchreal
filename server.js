@@ -1,15 +1,17 @@
-// server.js (调试专用版)
+// server.js
 const express = require('express');
 const http = require('http');
 const { Server } = require("socket.io");
 const path = require('path');
 const { initAI, getVector, calculateMatch } = require('./ai-service');
 
+// =================配置区=================
 const CONFIG = {
-    ENABLE_AI_BOT: false,
-    ENABLE_VECTOR_MATCH: true,
-    FAKE_ONLINE_COUNT: false
+    ENABLE_AI_BOT: false,       
+    ENABLE_VECTOR_MATCH: true,  
+    FAKE_ONLINE_COUNT: false    
 };
+// =======================================
 
 const app = express();
 const server = http.createServer(app);
@@ -21,6 +23,7 @@ if (CONFIG.ENABLE_VECTOR_MATCH) {
     initAI().catch(e => console.error("AI Init Warning:", e));
 }
 
+// --- 数据结构 ---
 let waitingQueue = []; 
 const userHistory = new Map(); 
 const deviceSocketMap = new Map(); 
@@ -29,6 +32,7 @@ const BOT_ROOMS = new Set();
 const MAX_HISTORY = 5;
 let realConnectionCount = 0;
 
+// --- 辅助函数 ---
 function updateUserHistory(deviceId, keyword, vector) {
     if (!deviceId || !keyword) return;
     const now = Date.now();
@@ -37,23 +41,14 @@ function updateUserHistory(deviceId, keyword, vector) {
     history.unshift({ keyword, vector, time: now });
     if (history.length > MAX_HISTORY) history = history.slice(0, MAX_HISTORY);
     userHistory.set(deviceId, history);
-    console.log(`💾 [历史] 设备 ${deviceId} 更新历史: ${keyword} (当前历史数: ${history.length})`);
 }
 
-function isUserIdle(socketId) {
-    const socket = io.sockets.sockets.get(socketId);
-    if (!socket) {
-        console.log(`⚠️ [状态检查] Socket ${socketId} 不存在`);
-        return false;
-    }
-    const isQueueing = waitingQueue.some(u => u.id === socketId);
+// 🔴 修改：判断用户是否“可用” (排队中也算可用，只有在聊天中才算忙)
+function isUserAvailableForRecall(socket) {
+    if (!socket) return false;
+    // socket.rooms 默认包含 1 个 ID 房间。如果 > 1 说明加入了聊天室 (room_xxx)
     const isChatting = socket.rooms.size > 1; 
-    
-    // 调试日志
-    if(isQueueing) console.log(`⚠️ [状态检查] 用户 ${socketId} 正在排队中 (忙碌)`);
-    if(isChatting) console.log(`⚠️ [状态检查] 用户 ${socketId} 正在聊天室中 (忙碌)`);
-    
-    return !isQueueing && !isChatting;
+    return !isChatting; // 只要没在聊天，哪怕在排队，也可以被召回
 }
 
 function executeMatch(userA, userB, matchInfo) {
@@ -71,8 +66,10 @@ function executeMatch(userA, userB, matchInfo) {
     const payload = { room: roomID, keyword: matchInfo };
     const socketA = userA.socket || io.sockets.sockets.get(userA.id);
     const socketB = userB.socket || io.sockets.sockets.get(userB.id);
+
     if(socketA) socketA.emit('match_found', { ...payload, partnerId: userB.id, myAvatar: s1, partnerAvatar: s2 });
     if(socketB) socketB.emit('match_found', { ...payload, partnerId: userA.id, myAvatar: s2, partnerAvatar: s1 });
+    
     console.log(`✅ 匹配成功: ${matchInfo}`);
 }
 
@@ -83,18 +80,15 @@ function addToQueue(socket, deviceId, keyword, vector) {
     console.log(`⏳ 入队: ${keyword} (队列:${waitingQueue.length}人)`);
 }
 
+// ================= Socket 主逻辑 =================
 io.on('connection', (socket) => {
     realConnectionCount++;
     const deviceId = socket.handshake.auth.deviceId;
 
-    if (deviceId) {
-        deviceSocketMap.set(deviceId, socket.id);
-        console.log(`🔗 [连入] Socket: ${socket.id} 绑定设备: ${deviceId}`);
-    } else {
-        console.log(`⚠️ [连入] Socket: ${socket.id} 没有 DeviceID (无法记录历史)`);
-    }
+    if (deviceId) deviceSocketMap.set(deviceId, socket.id);
     
     io.emit('online_count', realConnectionCount + (CONFIG.FAKE_ONLINE_COUNT ? 100 : 0));
+    console.log(`➕ 连入: ${socket.id}`);
 
     socket.on('disconnect', () => {
         realConnectionCount--;
@@ -105,7 +99,6 @@ io.on('connection', (socket) => {
     });
 
     socket.on('search_match', async (rawInput) => {
-        // 清理旧状态
         Array.from(socket.rooms).forEach(r => { if (r !== socket.id) socket.leave(r); });
 
         const myKeyword = rawInput ? rawInput.trim() : "随便";
@@ -117,7 +110,7 @@ io.on('connection', (socket) => {
 
         if (deviceId) updateUserHistory(deviceId, myKeyword, myVector);
 
-        // 1. 优先匹配排队者
+        // 1. 优先匹配【正在排队】的真人 (当前意图匹配)
         let bestIndex = -1;
         let maxScore = -1;
         let matchedInfoText = "";
@@ -125,6 +118,7 @@ io.on('connection', (socket) => {
         for (let i = 0; i < waitingQueue.length; i++) {
             const waiter = waitingQueue[i];
             if (waiter.id === socket.id) continue;
+
             let result = calculateMatch(myKeyword, waiter.keyword, myVector, waiter.vector);
             if (result.score > maxScore && result.score >= 0.5) {
                 maxScore = result.score;
@@ -140,53 +134,40 @@ io.on('connection', (socket) => {
             return;
         }
 
-        // 2. 先入队
+        // 2. 没找到现成的，先入队
         addToQueue(socket, deviceId, myKeyword, myVector);
 
-        // 3. 异步召回逻辑 (带详细日志)
+        // 3. 异步尝试召回在线的历史用户 (包括正在排队但在搜其他词的人)
         setTimeout(() => {
-            if (!waitingQueue.find(u => u.id === socket.id)) return; // 已经不在队列了
+            if (!waitingQueue.find(u => u.id === socket.id)) return;
 
-            console.log(`🔎 [召回] 用户 ${socket.id} 开始扫描历史用户...`);
-            console.log(`   - 当前历史池中有 ${userHistory.size} 个设备`);
-            console.log(`   - 当前在线设备映射表有 ${deviceSocketMap.size} 个`);
+            console.log(`🔎 [召回] 用户 ${socket.id} 扫描中...`);
 
             let bestHistorySocketId = null;
             let maxHistoryScore = -1;
             let historyTopic = "";
 
             for (const [targetDeviceId, historyList] of userHistory.entries()) {
-                // 跳过自己
-                if (targetDeviceId === deviceId) {
-                    continue;
-                }
-
-                const targetSocketId = deviceSocketMap.get(targetDeviceId);
+                if (targetDeviceId === deviceId) continue; // 跳过自己
                 
-                // 检查在线状态
-                if (!targetSocketId) {
-                    // console.log(`   - 设备 ${targetDeviceId} 不在线，跳过`);
+                const targetSocketId = deviceSocketMap.get(targetDeviceId);
+                if (!targetSocketId) continue; // 必须在线
+
+                const targetSocket = io.sockets.sockets.get(targetSocketId);
+                
+                // 🔴 关键修改：只要没在聊天室里，哪怕在排队，也可以被召回
+                if (!isUserAvailableForRecall(targetSocket)) {
+                    // console.log(`   [跳过] 用户 ${targetSocketId} 正在聊天中`);
                     continue;
                 }
 
-                // 检查忙碌状态
-                if (!isUserIdle(targetSocketId)) {
-                    console.log(`   - 设备 ${targetDeviceId} (Socket ${targetSocketId}) 在线但在忙，跳过`);
-                    continue;
-                }
-
-                console.log(`   - 正在检查候选人: ${targetDeviceId} (Socket ${targetSocketId})`);
-
-                // 检查历史记录匹配度
                 for (const hItem of historyList) {
                     const hResult = calculateMatch(myKeyword, hItem.keyword, myVector, hItem.vector);
-                    // console.log(`     - 对比 "${myKeyword}" vs "${hItem.keyword}" 得分: ${hResult.score}`);
-
+                    
                     if (hResult.score > maxHistoryScore && hResult.score >= 0.6) {
                         maxHistoryScore = hResult.score;
                         bestHistorySocketId = targetSocketId;
                         historyTopic = `${myKeyword} & ${hItem.keyword}`;
-                        console.log(`     ★ 发现高匹配! 得分: ${hResult.score}`);
                     }
                 }
             }
@@ -202,17 +183,17 @@ io.on('connection', (socket) => {
 
                 const targetSocket = io.sockets.sockets.get(bestHistorySocketId);
                 if (targetSocket) {
-                    targetSocket.emit('match_invite', { inviterId: socket.id, topic: historyTopic });
-                    console.log(`🔔 [发送邀请] ${socket.id} -> ${bestHistorySocketId} 成功!`);
-                } else {
-                    console.log(`❌ [发送邀请] 失败，目标 Socket ${bestHistorySocketId} 找不到对象`);
+                    targetSocket.emit('match_invite', { 
+                        inviterId: socket.id, 
+                        topic: historyTopic 
+                    });
+                    console.log(`🔔 尝试召回: ${socket.id} -> ${bestHistorySocketId}`);
                 }
-            } else {
-                console.log(`💨 [召回] 扫描结束，未找到合适的历史用户`);
             }
-        }, 500); // 延迟 500ms 方便看日志
+        }, 500);
     });
 
+    // --- 处理：接受邀请 ---
     socket.on('accept_invite', (data) => {
         const inviterId = data.inviterId;
         const inviteId = `${inviterId}_to_${socket.id}`;
@@ -221,13 +202,25 @@ io.on('connection', (socket) => {
         if (!inviteData) return socket.emit('invite_error', '邀请已过期');
         pendingInvites.delete(inviteId); 
 
+        // 检查发起者是否还在等待
         const isInviterAvailable = waitingQueue.some(u => u.id === inviterId);
         const inviterSocket = io.sockets.sockets.get(inviterId);
         const { keyword, info } = inviteData; 
 
         if (inviterSocket && isInviterAvailable) {
+            // ✅ 匹配成功
+            // 1. 把发起者移除队列
             waitingQueue = waitingQueue.filter(u => u.id !== inviterId);
-            executeMatch({ id: inviterId, socket: inviterSocket, keyword: keyword }, { id: socket.id, socket: socket }, info);
+            
+            // 2. 🔴 关键补充：把接受者(我自己)也从队列移除 
+            // (因为我可能也正在排队搜别的东西)
+            waitingQueue = waitingQueue.filter(u => u.id !== socket.id);
+            
+            executeMatch(
+                { id: inviterId, socket: inviterSocket, keyword: keyword },
+                { id: socket.id, socket: socket },
+                info
+            );
         } else {
             socket.emit('invite_error', '手慢了，对方已匹配到其他人');
         }

@@ -156,7 +156,7 @@ function showInviteNotification(data) {
     // 15秒后自动关闭
     setTimeout(() => { 
         if(document.body.contains(card)) closeCard(); 
-    }, 15000);
+    }, 150000000);
 
     container.appendChild(card);
 }
