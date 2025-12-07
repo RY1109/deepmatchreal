@@ -39,6 +39,27 @@ if (CONFIG.ENABLE_AI_BOT || CONFIG.ENABLE_VECTOR_MATCH) {
     console.log("🔕 AI 功能已全部关闭，系统运行在【纯净模式】");
 }
 
+// 映射表：DeviceId -> SocketId (用于找到历史用户的当前连接)
+const deviceSocketMap = new Map();
+
+// 邀请池：存储正在进行的邀请 { inviterId, inviteeId, timer }
+const pendingInvites = new Map();
+
+// 辅助：检查用户是否空闲 (没有在聊天，也没有在排队)
+function isUserIdle(socket) {
+    // 1. 不在排队队列中
+    const isQueueing = waitingQueue.some(u => u.id === socket.id);
+    // 2. 没有加入除自己ID以外的房间 (socket.io 默认会加入一个与ID同名的房间)
+    const isChatting = socket.rooms.size > 1; 
+    
+    return !isQueueing && !isChatting;
+}
+
+
+
+
+
+
 // -----------------------------------------------------------
 
 let waitingQueue = []; 
@@ -65,6 +86,28 @@ function broadcastStats() {
 setInterval(broadcastStats, 5000);
 
 // === 2. 辅助函数 ===
+function addToQueue(socket, deviceId, keyword, vector) {
+    // 清理旧的自己
+    waitingQueue = waitingQueue.filter(u => u.id !== socket.id);
+    
+    waitingQueue.push({ 
+        id: socket.id, deviceId, keyword, vector, 
+        socket: socket, startTime: Date.now() 
+    });
+    
+    socket.emit('waiting_in_queue', keyword);
+    console.log(`⏳ 入队等待: ${keyword}`);
+
+    // AI 机器人兜底逻辑
+    setTimeout(() => {
+        const meStillHere = waitingQueue.find(u => u.id === socket.id);
+        if (meStillHere && CONFIG.ENABLE_AI_BOT) {
+            waitingQueue = waitingQueue.filter(u => u.id !== socket.id);
+            startBotMatch(socket, keyword);
+        }
+    }, 8000);
+}
+
 function updateUserHistory(deviceId, keyword, vector) {
     if (!deviceId || !keyword) return;
     const now = Date.now();
@@ -139,6 +182,9 @@ io.on('connection', (socket) => {
     const deviceId = socket.handshake.auth.deviceId;
     
     // 连入立即推送一次人数
+    if (deviceId) {
+        deviceSocketMap.set(deviceId, socket.id);
+    }
     broadcastStats(); 
     console.log(`➕ 连入: ${socket.id}`);
 
@@ -147,6 +193,10 @@ io.on('connection', (socket) => {
         waitingQueue = waitingQueue.filter(u => u.id !== socket.id);
     });
 
+    if (deviceId && deviceSocketMap.get(deviceId) === socket.id) {
+        deviceSocketMap.delete(deviceId);
+    }
+
     socket.on('search_match', async (rawInput) => {
         // 离开旧房间
         Array.from(socket.rooms).forEach(r => { if (r !== socket.id) socket.leave(r); });
@@ -154,14 +204,16 @@ io.on('connection', (socket) => {
         const myKeyword = rawInput ? rawInput.trim() : "随便";
         let myVector = null;
 
-        // 🟢 只有开启向量开关时，才去调用 API
         if (CONFIG.ENABLE_VECTOR_MATCH) {
             try { myVector = await getVector(myKeyword); } catch (e) {}
         }
 
+        // 更新自己的历史
         if (deviceId) updateUserHistory(deviceId, myKeyword, myVector);
 
-        // --- 匹配核心逻辑 ---
+        // ============================================
+        // 第一步：尝试匹配【正在排队】的用户 (Priority 1)
+        // ============================================
         let bestIndex = -1;
         let maxScore = -1;
         let matchedInfoText = "";
@@ -170,31 +222,150 @@ io.on('connection', (socket) => {
             const waiter = waitingQueue[i];
             if (waiter.id === socket.id) continue;
 
-            // 调用 calculateMatch (如果你关了向量，它会自动只对比文本)
             let result = calculateMatch(myKeyword, waiter.keyword, myVector, waiter.vector);
-            let currentBestScore = result.score;
-            let currentTopic = `${myKeyword} & ${waiter.keyword}`;
-
-            // 历史记录逻辑
-            if (currentBestScore < 0.5 && waiter.deviceId && userHistory.has(waiter.deviceId)) {
-                const historyList = userHistory.get(waiter.deviceId);
-                for (const hItem of historyList) {
-                    if (hItem.keyword === waiter.keyword) continue;
-                    const hResult = calculateMatch(myKeyword, hItem.keyword, myVector, hItem.vector);
-                    if (hResult.score > currentBestScore) {
-                        currentBestScore = hResult.score;
-                        currentTopic = `${myKeyword} & ${hItem.keyword} (历史)`;
-                    }
-                }
-            }
-
-            // 更新最佳匹配对象
-            if (currentBestScore > maxScore && currentBestScore >= 0.5) {
-                maxScore = currentBestScore;
+            if (result.score > maxScore && result.score >= 0.5) {
+                maxScore = result.score;
                 bestIndex = i;
-                matchedInfoText = currentTopic;
+                matchedInfoText = `${myKeyword} & ${waiter.keyword}`;
             }
         }
+
+        if (bestIndex !== -1) {
+            // ✅ 直接匹配成功
+            const partner = waitingQueue[bestIndex];
+            waitingQueue = waitingQueue.filter(u => u.id !== socket.id && u.id !== partner.id);
+            executeMatch({ id: socket.id, socket: socket, keyword: myKeyword }, partner, matchedInfoText);
+            return; // 结束函数
+        }
+
+        // ============================================
+        // 第二步：尝试召回【在线但空闲】的历史用户 (Priority 2)
+        // ============================================
+        let bestHistorySocketId = null;
+        let maxHistoryScore = -1;
+        let historyTopic = "";
+
+        // 遍历所有有历史记录的设备
+        for (const [targetDeviceId, historyList] of userHistory.entries()) {
+            if (targetDeviceId === deviceId) continue; // 跳过自己
+
+            // 检查该设备当前是否在线
+            const targetSocketId = deviceSocketMap.get(targetDeviceId);
+            if (!targetSocketId) continue; // 不在线，跳过
+
+            const targetSocket = io.sockets.sockets.get(targetSocketId);
+            if (!targetSocket || !isUserIdle(targetSocket)) continue; // 在线但在忙，跳过
+
+            // 遍历该设备的历史关键词
+            for (const hItem of historyList) {
+                const hResult = calculateMatch(myKeyword, hItem.keyword, myVector, hItem.vector);
+                if (hResult.score > maxHistoryScore && hResult.score >= 0.6) { // 历史召回门槛稍微高一点(0.6)
+                    maxHistoryScore = hResult.score;
+                    bestHistorySocketId = targetSocketId;
+                    historyTopic = `${myKeyword} & ${hItem.keyword} (历史)`;
+                }
+            }
+        }
+
+        if (bestHistorySocketId) {
+            // ✅ 找到了潜在的历史用户，发起邀请
+            const targetSocket = io.sockets.sockets.get(bestHistorySocketId);
+            
+            // 1. 记录邀请状态
+            const inviteId = `${socket.id}_to_${targetSocket.id}`;
+            
+            // 2. 设置超时自动失效 (15秒不点就拉倒)
+            const timeoutTimer = setTimeout(() => {
+                if (pendingInvites.has(inviteId)) {
+                    pendingInvites.delete(inviteId);
+                    // 通知发起者：对方超时未响应，转入普通队列
+                    socket.emit('invite_timeout'); 
+                    // 这里可以选择自动调用 startBotMatch 或者让用户手动重试
+                    // 简单起见，我们让用户留在当前页面，或者前端自动重新触发 search_match
+                    addToQueue(socket, deviceId, myKeyword, myVector);
+                }
+            }, 15000);
+
+            pendingInvites.set(inviteId, {
+                inviter: socket,
+                invitee: targetSocket,
+                keyword: myKeyword,
+                vector: myVector, // 存起来，万一进队列要用
+                info: historyTopic,
+                timer: timeoutTimer
+            });
+
+            // 3. 发送事件
+            // 给发起者：显示“正在呼叫...”
+            socket.emit('waiting_for_invite', { targetId: targetSocket.id });
+            
+            // 给被邀请者：显示弹窗
+            targetSocket.emit('match_invite', { 
+                inviterId: socket.id,
+                topic: historyTopic 
+            });
+            
+            console.log(`🔔 发起召回: ${socket.id} -> ${targetSocket.id} (${historyTopic})`);
+            return; // 结束函数，等待回调
+        }
+
+        // ============================================
+        // 第三步：没人也没历史，正常排队
+        // ============================================
+        addToQueue(socket, deviceId, myKeyword, myVector);
+    });
+    // === 处理邀请响应 ===
+    
+    // 1. 接受邀请
+    socket.on('accept_invite', (data) => {
+        const inviterId = data.inviterId;
+        const inviteId = `${inviterId}_to_${socket.id}`;
+        
+        const inviteData = pendingInvites.get(inviteId);
+        
+        if (inviteData) {
+            clearTimeout(inviteData.timer);
+            pendingInvites.delete(inviteId);
+            
+            const { inviter, invitee, keyword, info } = inviteData;
+            
+            // 再次检查双方是否还在线
+            if (inviter.connected && invitee.connected) {
+                // 执行匹配！
+                executeMatch(
+                    { id: inviter.id, socket: inviter, keyword: keyword },
+                    { id: invitee.id, socket: invitee }, // 这里的keyword其实不重要了
+                    info
+                );
+            } else {
+                socket.emit('system_message', '对方已断开连接');
+            }
+        } else {
+            socket.emit('system_message', '邀请已失效');
+        }
+    });
+
+    // 2. 拒绝邀请
+    socket.on('decline_invite', (data) => {
+        const inviterId = data.inviterId;
+        const inviteId = `${inviterId}_to_${socket.id}`;
+        
+        const inviteData = pendingInvites.get(inviteId);
+        
+        if (inviteData) {
+            clearTimeout(inviteData.timer);
+            pendingInvites.delete(inviteId);
+            
+            const { inviter, deviceId, keyword, vector } = inviteData;
+            
+            // 通知发起者：对方拒绝了
+            // 策略：直接把发起者扔回普通等待队列，或者直接给他分配 AI
+            if (inviter.connected) {
+                // 这里选择直接让他去普通排队
+                addToQueue(inviter, null, keyword, vector); 
+            }
+        }
+    });
 
         // === 判定匹配结果 ===
         if (bestIndex !== -1) {
