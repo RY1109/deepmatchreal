@@ -84,19 +84,29 @@ function scrollToBottom() {
     el.scrollTop = el.scrollHeight;
 }
 
+// public/js/app.js 中的 renderMessage 函数
+
 function renderMessage(text, type, time, avatarUrl) {
     const chatBody = document.getElementById('chatBody');
     const row = document.createElement('div');
+    
+    // 给 row 加上类型 class (me / other / system)
     row.className = `msg-row ${type}`;
     
     if (type === 'system') {
-        row.innerHTML = `<div class="msg-system-bubble">${text}</div>`;
-        row.style.justifyContent = 'center';
-    } else {
-        let avatarHtml = type === 'other' ? `<div class="avatar"><img src="${avatarUrl}"></div>` : '';
+        // 系统消息：不需要头像，只需要中间的文字
         row.innerHTML = `
-            ${avatarHtml}
-            <div>
+            <div class="msg-system-bubble">${text}</div>
+        `;
+    } else {
+        // 真人消息 (我 或 对方)
+        // ✅ 关键点：无论是我还是对方，都生成头像 HTML
+        // CSS 的 flex-direction: row-reverse 会自动把我的头像放到右边
+        row.innerHTML = `
+            <div class="avatar">
+                <img src="${avatarUrl}" alt="Avatar">
+            </div>
+            <div class="msg-content">
                 <div class="msg-bubble">${text}</div>
                 <span class="msg-time">${time}</span>
             </div>

@@ -378,3 +378,103 @@ textarea.main-input {
 @keyframes fadeOutRight {
     to { transform: translateX(120%); opacity: 0; }
 }
+/* public/css/style.css */
+
+/* --- 消息行容器 --- */
+.msg-row {
+    display: flex;
+    align-items: flex-start; /* 头像和气泡顶部对齐 */
+    gap: 10px;
+    margin-bottom: 15px;
+    width: 100%;
+}
+
+/* --- 对方的消息 (默认从左到右) --- */
+.msg-row.other {
+    flex-direction: row; 
+    justify-content: flex-start;
+}
+
+/* --- 我的消息 (从右到左排列) --- */
+.msg-row.me {
+    flex-direction: row-reverse; /* 关键：反转排列，让头像在右边 */
+    justify-content: flex-start; /* 反转后 start 其实是右边 */
+}
+
+/* --- 系统消息 (居中，无头像) --- */
+.msg-row.system {
+    justify-content: center;
+    margin: 10px 0;
+}
+
+/* --- 头像样式 --- */
+.msg-row .avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background-color: #eee;
+    overflow: hidden;
+    flex-shrink: 0; /* 防止被挤压 */
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+}
+
+.msg-row .avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* --- 消息内容区域 (气泡+时间) --- */
+.msg-content {
+    display: flex;
+    flex-direction: column;
+    max-width: 70%;
+}
+
+/* --- 调整气泡对其方式 --- */
+.msg-row.me .msg-content {
+    align-items: flex-end; /* 我的气泡靠右 */
+}
+.msg-row.other .msg-content {
+    align-items: flex-start; /* 对方气泡靠左 */
+}
+
+/* --- 气泡样式微调 --- */
+.msg-bubble {
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 0.95rem;
+    line-height: 1.5;
+    word-break: break-word;
+    position: relative;
+}
+
+/* 颜色 */
+.msg-row.other .msg-bubble {
+    background: #fff;
+    border: 1px solid #eee;
+    color: #333;
+    border-top-left-radius: 2px; /* 小尖角效果 */
+}
+
+.msg-row.me .msg-bubble {
+    background: #4d6bfe;
+    color: white;
+    border-top-right-radius: 2px; /* 小尖角效果 */
+}
+
+/* 系统消息气泡 */
+.msg-system-bubble {
+    background-color: rgba(0, 0, 0, 0.05);
+    color: #888;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-size: 0.75rem;
+}
+
+/* 时间戳 */
+.msg-time {
+    font-size: 0.7rem;
+    color: #999;
+    margin-top: 4px;
+}
