@@ -116,6 +116,29 @@ function renderMessage(text, type, time, avatarUrl) {
     chatBody.appendChild(row);
     scrollToBottom();
 }
+function enableChatInput() {
+    const chatInput = document.getElementById('chatInput');
+    const sendBtn = document.querySelector('.input-bar button');
+    
+    if (chatInput) {
+        chatInput.disabled = false;
+        // 恢复 placeholder
+        const t = window.translations[currentLang];
+        chatInput.placeholder = t ? t.chatPlaceholder : "发消息...";
+    }
+    if (sendBtn) {
+        sendBtn.disabled = false;
+        sendBtn.style.background = "var(--ds-blue)";
+    }
+    
+    // 恢复顶部状态
+    const statusEl = document.getElementById('match-status');
+    if (statusEl) {
+        const t = window.translations[currentLang];
+        statusEl.innerText = t ? t.matchSuccess : "● 匹配成功";
+        statusEl.style.color = "#22c55e";
+    }
+}
 
 // ==========================================
 // 5. 通知卡片 UI 逻辑 (定义在这里)
@@ -227,6 +250,7 @@ socket.on('online_count', (c) => {
 });
 
 socket.on('match_found', (data) => {
+    enableChatInput(); 
     currentRoom = data.room;
     myAvatarUrl = getAvatar(data.myAvatar);
     partnerAvatarUrl = getAvatar(data.partnerAvatar);
@@ -294,6 +318,46 @@ socket.on('invite_error', (msg) => {
     document.getElementById('loading-text').innerText = "继续搜索中...";
 });
 
+
+// ✅ 新增：监听对方离开
+socket.on('partner_left', () => {
+    // 1. 防重复检查：检查最后一条消息是否已经是“对方已离开”
+    // 获取聊天框最后一条消息的文本
+    const chatBody = document.getElementById('chatBody');
+    if (chatBody.lastElementChild) {
+        const lastMsgText = chatBody.lastElementChild.innerText;
+        // 如果最后一条已经是离开提示，就不再显示了
+        if (lastMsgText.includes("对方已离开")) return;
+    }
+
+    // 2. 显示系统消息
+    const t = window.translations[currentLang];
+    const leaveText = currentLang === 'zh' ? "对方已离开聊天室" : "Partner has left the chat";
+    
+    renderMessage(leaveText, 'system', '', '');
+    appendMsg({ text: leaveText, type: 'system', time: '' });
+
+    // 3. 更新 UI 状态 (可选：禁用输入框，防止对着空气说话)
+    const chatInput = document.getElementById('chatInput');
+    const sendBtn = document.querySelector('.input-bar button');
+    if (chatInput) {
+        chatInput.disabled = true;
+        chatInput.placeholder = currentLang === 'zh' ? "聊天已结束" : "Chat ended";
+    }
+    if (sendBtn) {
+        sendBtn.disabled = true;
+        sendBtn.style.background = "#ccc";
+    }
+    
+    // 4. 更新顶部状态
+    const statusEl = document.getElementById('match-status');
+    if (statusEl) {
+        statusEl.innerText = currentLang === 'zh' ? "● 已断开" : "● Disconnected";
+        statusEl.style.color = "#999";
+    }
+});
+
+
 // ==========================================
 // 8. 页面加载初始化
 // ==========================================
@@ -302,6 +366,7 @@ window.onload = () => {
     
     const session = getSession();
     if (session) {
+        enableChatInput(); // <--- 加这一行，确保刷新后输入框可用
         currentRoom = session.roomId;
         myAvatarUrl = session.myAvatar;
         partnerAvatarUrl = session.partnerAvatar;

@@ -90,6 +90,19 @@ io.on('connection', (socket) => {
     io.emit('online_count', realConnectionCount + (CONFIG.FAKE_ONLINE_COUNT ? 100 : 0));
     console.log(`➕ 连入: ${socket.id}`);
 
+    socket.on('disconnecting', () => {
+        // 获取该用户当前所在的房间列表
+        const rooms = Array.from(socket.rooms);
+        
+        // 遍历房间，找到匹配的聊天室 (排除自己的 ID 房间)
+        rooms.forEach(room => {
+            if (room !== socket.id && room.startsWith('room_')) {
+                // 向该房间里的其他人发送“对方离开”信号
+                socket.to(room).emit('partner_left', { room: room });
+            }
+        });
+    });
+
     socket.on('disconnect', () => {
         realConnectionCount--;
         waitingQueue = waitingQueue.filter(u => u.id !== socket.id);
