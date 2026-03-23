@@ -61,24 +61,55 @@ io.on('connection', (socket) => {
     io.emit('online_count', onlineCount + (CONFIG.FAKE_ONLINE_COUNT ? 100 : 0));
     console.log(`➕ 连入: ${socket.id}`);
 
+// ==========================================
+    // 🛠️ 修复刷新 Bug：3秒断线重连宽限期
+    // ==========================================
     socket.on('disconnecting', () => {
-        const rooms = Array.from(socket.rooms);
-        rooms.forEach(room => {
-            if (room === socket.id) return;
-            if (room.startsWith('room_')) {
-                socket.to(room).emit('partner_left');
-            } else if (room.startsWith('group_')) {
-                const roomSize = (io.sockets.adapter.rooms.get(room)?.size || 1) - 1;
-                if (roomSize > 0) socket.to(room).emit('system_message', `👋 一位玩家离开了房间，当前剩余 ${roomSize} 人`);
-            }
-        });
+        // 刷新瞬间：记录断开前所在的房间 (排除自己的 socket.id)
+        let roomsToLeave =[];
+        for (const r of socket.rooms) {
+            if (r !== socket.id) roomsToLeave.push(r);
+        }
+        socket.leaveRooms = roomsToLeave;
     });
 
     socket.on('disconnect', () => {
         onlineCount--;
         io.emit('online_count', onlineCount);
         waitingQueue = waitingQueue.filter(u => u.id !== socket.id);
-        if (deviceId && deviceSocketMap.get(deviceId) === socket.id) deviceSocketMap.delete(deviceId);
+        
+        if (deviceId && deviceSocketMap.get(deviceId) === socket.id) {
+            deviceSocketMap.delete(deviceId);
+        }
+
+        const roomsToCheck = socket.leaveRooms ||[];
+
+        // 延迟 3 秒判断是否真的离开了
+        setTimeout(() => {
+            const currentSocketId = deviceSocketMap.get(deviceId);
+            const currentSocket = currentSocketId ? io.sockets.sockets.get(currentSocketId) : null;
+            
+            let currentRooms =[];
+            if (currentSocket) {
+                currentRooms = Array.from(currentSocket.rooms);
+            }
+
+            // 遍历断开前所在的房间
+            roomsToCheck.forEach(room => {
+                // 如果3秒后，该设备不再这些房间里了，说明真退出了
+                if (!currentRooms.includes(room)) {
+                    if (room.startsWith('room_')) {
+                        io.to(room).emit('partner_left');
+                    } else if (room.startsWith('group_')) {
+                        const roomObj = io.sockets.adapter.rooms.get(room);
+                        const roomSize = roomObj ? roomObj.size : 0;
+                        if (roomSize > 0) {
+                            io.to(room).emit('system_message', `👋 一位玩家离开了房间，当前剩余 ${roomSize} 人`);
+                        }
+                    }
+                }
+            });
+        }, 3000);
     });
 
     socket.on('search_match', async (rawInput) => {
@@ -103,6 +134,9 @@ io.on('connection', (socket) => {
             const myAvatarSeed = Math.floor(Math.random() * 1000);
             socket.emit('group_match_success', { room: groupRoomID, keyword: myKeyword, myAvatarSeed, memberCount: groupRoom.size });
             socket.to(groupRoomID).emit('system_message', `✨ 欢迎新玩家加入，当前共 ${groupRoom.size} 人`);
+            
+            // 🌟 新增：打印玩家加入已有群聊日志
+            console.log(`👥 [群聊加入] | 房间号: ${groupRoomID} | 关键词: ${myKeyword} | 当前人数: ${groupRoom.size}`);
             return;
         }
 
@@ -117,9 +151,14 @@ io.on('connection', (socket) => {
                 partnerSocket.join(groupRoomID);
                 socket.emit('group_match_success', { room: groupRoomID, keyword: myKeyword, myAvatarSeed: Math.floor(Math.random()*1000), memberCount: 2 });
                 partnerSocket.emit('group_match_success', { room: groupRoomID, keyword: myKeyword, myAvatarSeed: Math.floor(Math.random()*1000), memberCount: 2 });
+                
+                // 🌟 新增：打印全新群聊建立日志
+                console.log(`👥 [聊天室建立] 全新群聊 | 房间号: ${groupRoomID} | 关键词: ${myKeyword}`);
                 return;
             }
         }
+
+        // ... 后面的 1v1 单聊检查、入队排队等逻辑保持不变 ...
 
         // ==========================================
         // 🌟 2. 1v1 单聊检查 (模糊命中)
