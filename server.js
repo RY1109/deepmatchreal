@@ -5,125 +5,125 @@ const { Server } = require("socket.io");
 const path = require('path');
 const { initAI, getVector, calculateMatch } = require('./ai-service');
 
-// =================配置区=================
-const CONFIG = {
-    ENABLE_AI_BOT: false,       
-    ENABLE_VECTOR_MATCH: true,  
-    FAKE_ONLINE_COUNT: false    
-};
-// =======================================
-
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
+initAI();
 
-if (CONFIG.ENABLE_VECTOR_MATCH) {
-    initAI().catch(e => console.error("AI Init Warning:", e));
-}
-
-// --- 数据结构 ---
-let waitingQueue = []; 
-const userHistory = new Map(); 
-const deviceSocketMap = new Map(); 
+// 全局状态
+let waitingQueue =[];
+let onlineCount = 0;
+const deviceSocketMap = new Map();
+const userHistory = new Map();
 const pendingInvites = new Map();
-const BOT_ROOMS = new Set();
-const MAX_HISTORY = 5;
-let realConnectionCount = 0;
 
-// --- 辅助函数 ---
-function updateUserHistory(deviceId, keyword, vector) {
-    if (!deviceId || !keyword) return;
-    const now = Date.now();
-    let history = userHistory.get(deviceId) || [];
-    history = history.filter(h => (now - h.time < 43200000) && (h.keyword !== keyword));
-    history.unshift({ keyword, vector, time: now });
-    if (history.length > MAX_HISTORY) history = history.slice(0, MAX_HISTORY);
-    userHistory.set(deviceId, history);
-}
+const CONFIG = { ENABLE_VECTOR_MATCH: true, FAKE_ONLINE_COUNT: false };
 
-// 🔴 修改：判断用户是否“可用” (排队中也算可用，只有在聊天中才算忙)
+// 辅助函数：判断用户是否空闲 (不在任何聊天室)
 function isUserAvailableForRecall(socket) {
     if (!socket) return false;
-    // socket.rooms 默认包含 1 个 ID 房间。如果 > 1 说明加入了聊天室 (room_xxx)
-    const isChatting = socket.rooms.size > 1; 
-    return !isChatting; // 只要没在聊天，哪怕在排队，也可以被召回
+    const rooms = Array.from(socket.rooms);
+    // 只在自己的专属ID房间，说明没有在单聊或群聊中
+    return rooms.length === 1 && rooms[0] === socket.id;
 }
 
-function executeMatch(userA, userB, matchInfo) {
+// 辅助函数：执行 1v1 匹配
+function executeMatch(p1, p2, infoText) {
     const roomID = 'room_' + Date.now();
-    [userA, userB].forEach(u => {
-        const s = u.socket || io.sockets.sockets.get(u.id);
-        if(s) {
-            s.join(roomID);
-            Array.from(s.rooms).forEach(r => { if(r !== s.id && r !== roomID) s.leave(r); });
-        }
-    });
-    BOT_ROOMS.delete(roomID);
+    p1.socket.join(roomID);
+    p2.socket.join(roomID);
+
     const s1 = Math.floor(Math.random() * 1000);
     const s2 = Math.floor(Math.random() * 1000);
-    const payload = { room: roomID, keyword: matchInfo };
-    const socketA = userA.socket || io.sockets.sockets.get(userA.id);
-    const socketB = userB.socket || io.sockets.sockets.get(userB.id);
 
-    if(socketA) socketA.emit('match_found', { ...payload, partnerId: userB.id, myAvatar: s1, partnerAvatar: s2 });
-    if(socketB) socketB.emit('match_found', { ...payload, partnerId: userA.id, myAvatar: s2, partnerAvatar: s1 });
-    
-    console.log(`✅ 匹配成功: ${matchInfo}`);
+    const payload = { room: roomID, keyword: infoText };
+    p1.socket.emit('match_found', { ...payload, partnerId: p2.id, myAvatar: s1, partnerAvatar: s2 });
+    p2.socket.emit('match_found', { ...payload, partnerId: p1.id, myAvatar: s2, partnerAvatar: s1 });
+    console.log(`✅ 1v1匹配成功: ${p1.id} <-> ${p2.id} [${infoText}]`);
 }
 
-function addToQueue(socket, deviceId, keyword, vector) {
-    waitingQueue = waitingQueue.filter(u => u.id !== socket.id);
-    waitingQueue.push({ id: socket.id, deviceId, keyword, vector, socket: socket, startTime: Date.now() });
-    socket.emit('waiting_in_queue', keyword);
-    console.log(`⏳ 入队: ${keyword} (队列:${waitingQueue.length}人)`);
+function updateUserHistory(deviceId, keyword, vector) {
+    if (!userHistory.has(deviceId)) userHistory.set(deviceId,[]);
+    const history = userHistory.get(deviceId);
+    if (!history.find(h => h.keyword === keyword)) {
+        history.push({ keyword, vector, time: Date.now() });
+        if (history.length > 10) history.shift();
+    }
 }
 
-// ================= Socket 主逻辑 =================
 io.on('connection', (socket) => {
-    realConnectionCount++;
+    onlineCount++;
     const deviceId = socket.handshake.auth.deviceId;
-
     if (deviceId) deviceSocketMap.set(deviceId, socket.id);
     
-    io.emit('online_count', realConnectionCount + (CONFIG.FAKE_ONLINE_COUNT ? 100 : 0));
+    io.emit('online_count', onlineCount + (CONFIG.FAKE_ONLINE_COUNT ? 100 : 0));
     console.log(`➕ 连入: ${socket.id}`);
 
     socket.on('disconnecting', () => {
-        // 获取该用户当前所在的房间列表
         const rooms = Array.from(socket.rooms);
-        
-        // 遍历房间，找到匹配的聊天室 (排除自己的 ID 房间)
         rooms.forEach(room => {
-            if (room !== socket.id && room.startsWith('room_')) {
-                // 向该房间里的其他人发送“对方离开”信号
-                socket.to(room).emit('partner_left', { room: room });
+            if (room === socket.id) return;
+            if (room.startsWith('room_')) {
+                socket.to(room).emit('partner_left');
+            } else if (room.startsWith('group_')) {
+                const roomSize = (io.sockets.adapter.rooms.get(room)?.size || 1) - 1;
+                if (roomSize > 0) socket.to(room).emit('system_message', `👋 一位玩家离开了房间，当前剩余 ${roomSize} 人`);
             }
         });
     });
 
     socket.on('disconnect', () => {
-        realConnectionCount--;
+        onlineCount--;
+        io.emit('online_count', onlineCount);
         waitingQueue = waitingQueue.filter(u => u.id !== socket.id);
-        if (deviceId && deviceSocketMap.get(deviceId) === socket.id) {
-            deviceSocketMap.delete(deviceId);
-        }
+        if (deviceId && deviceSocketMap.get(deviceId) === socket.id) deviceSocketMap.delete(deviceId);
     });
 
     socket.on('search_match', async (rawInput) => {
         Array.from(socket.rooms).forEach(r => { if (r !== socket.id) socket.leave(r); });
 
-        const myKeyword = rawInput ? rawInput.trim() : "随便";
+        const myKeyword = rawInput ? rawInput.trim() : "综合大厅";
         let myVector = null;
-
         if (CONFIG.ENABLE_VECTOR_MATCH) {
             try { myVector = await getVector(myKeyword); } catch (e) {}
         }
-
         if (deviceId) updateUserHistory(deviceId, myKeyword, myVector);
 
-        // 1. 优先匹配【正在排队】的真人 (当前意图匹配)
+        // ==========================================
+        // 🌟 1. 群聊检查 (精确命中)
+        // ==========================================
+        const groupRoomID = `group_${myKeyword}`;
+        const groupRoom = io.sockets.adapter.rooms.get(groupRoomID);
+
+        // 情形 A：群聊已存在
+        if (groupRoom && groupRoom.size > 0) {
+            socket.join(groupRoomID);
+            const myAvatarSeed = Math.floor(Math.random() * 1000);
+            socket.emit('group_match_success', { room: groupRoomID, keyword: myKeyword, myAvatarSeed, memberCount: groupRoom.size });
+            socket.to(groupRoomID).emit('system_message', `✨ 欢迎新玩家加入，当前共 ${groupRoom.size} 人`);
+            return;
+        }
+
+        // 情形 B：有完全一样词的玩家在排队 -> 携手建群
+        let exactIndex = waitingQueue.findIndex(u => u.keyword === myKeyword && u.id !== socket.id);
+        if (exactIndex !== -1) {
+            const partner = waitingQueue[exactIndex];
+            waitingQueue.splice(exactIndex, 1);
+            const partnerSocket = io.sockets.sockets.get(partner.id);
+            if (partnerSocket) {
+                socket.join(groupRoomID);
+                partnerSocket.join(groupRoomID);
+                socket.emit('group_match_success', { room: groupRoomID, keyword: myKeyword, myAvatarSeed: Math.floor(Math.random()*1000), memberCount: 2 });
+                partnerSocket.emit('group_match_success', { room: groupRoomID, keyword: myKeyword, myAvatarSeed: Math.floor(Math.random()*1000), memberCount: 2 });
+                return;
+            }
+        }
+
+        // ==========================================
+        // 🌟 2. 1v1 单聊检查 (模糊命中)
+        // ==========================================
         let bestIndex = -1;
         let maxScore = -1;
         let matchedInfoText = "";
@@ -131,12 +131,11 @@ io.on('connection', (socket) => {
         for (let i = 0; i < waitingQueue.length; i++) {
             const waiter = waitingQueue[i];
             if (waiter.id === socket.id) continue;
-
             let result = calculateMatch(myKeyword, waiter.keyword, myVector, waiter.vector);
             if (result.score > maxScore && result.score >= 0.5) {
                 maxScore = result.score;
                 bestIndex = i;
-                matchedInfoText = `${myKeyword} & ${waiter.keyword}`;
+                matchedInfoText = `${myKeyword} & ${waiter.keyword} (${Math.round(result.score*100)}%)`;
             }
         }
 
@@ -147,36 +146,28 @@ io.on('connection', (socket) => {
             return;
         }
 
-        // 2. 没找到现成的，先入队
-        addToQueue(socket, deviceId, myKeyword, myVector);
+        // ==========================================
+        // 🌟 3. 入队排队 & 历史召回
+        // ==========================================
+        waitingQueue.push({ id: socket.id, socket: socket, keyword: myKeyword, vector: myVector });
+        socket.emit('waiting_in_queue');
 
-        // 3. 异步尝试召回在线的历史用户 (包括正在排队但在搜其他词的人)
         setTimeout(() => {
             if (!waitingQueue.find(u => u.id === socket.id)) return;
-
-            console.log(`🔎 [召回] 用户 ${socket.id} 扫描中...`);
-
             let bestHistorySocketId = null;
             let maxHistoryScore = -1;
             let historyTopic = "";
 
             for (const [targetDeviceId, historyList] of userHistory.entries()) {
-                if (targetDeviceId === deviceId) continue; // 跳过自己
-                
+                if (targetDeviceId === deviceId) continue;
                 const targetSocketId = deviceSocketMap.get(targetDeviceId);
-                if (!targetSocketId) continue; // 必须在线
-
-                const targetSocket = io.sockets.sockets.get(targetSocketId);
+                if (!targetSocketId) continue;
                 
-                // 🔴 关键修改：只要没在聊天室里，哪怕在排队，也可以被召回
-                if (!isUserAvailableForRecall(targetSocket)) {
-                    // console.log(`   [跳过] 用户 ${targetSocketId} 正在聊天中`);
-                    continue;
-                }
+                const targetSocket = io.sockets.sockets.get(targetSocketId);
+                if (!isUserAvailableForRecall(targetSocket)) continue;
 
                 for (const hItem of historyList) {
                     const hResult = calculateMatch(myKeyword, hItem.keyword, myVector, hItem.vector);
-                    
                     if (hResult.score > maxHistoryScore && hResult.score >= 0.6) {
                         maxHistoryScore = hResult.score;
                         bestHistorySocketId = targetSocketId;
@@ -187,69 +178,38 @@ io.on('connection', (socket) => {
 
             if (bestHistorySocketId) {
                 const inviteId = `${socket.id}_to_${bestHistorySocketId}`;
-                pendingInvites.set(inviteId, {
-                    inviterId: socket.id,
-                    inviteeId: bestHistorySocketId,
-                    keyword: myKeyword,
-                    info: historyTopic + " (历史召回)"
-                });
-
+                pendingInvites.set(inviteId, { inviterId: socket.id, inviteeId: bestHistorySocketId, keyword: myKeyword, info: historyTopic + " (召回)" });
                 const targetSocket = io.sockets.sockets.get(bestHistorySocketId);
                 if (targetSocket) {
-                    targetSocket.emit('match_invite', { 
-                        inviterId: socket.id, 
-                        topic: historyTopic 
-                    });
-                    console.log(`🔔 尝试召回: ${socket.id} -> ${bestHistorySocketId}`);
+                    targetSocket.emit('match_invite', { inviterId: socket.id, topic: historyTopic });
+                    socket.emit('waiting_for_invite');
                 }
             }
         }, 500);
     });
 
-    // --- 处理：接受邀请 ---
     socket.on('accept_invite', (data) => {
         const inviterId = data.inviterId;
         const inviteId = `${inviterId}_to_${socket.id}`;
         const inviteData = pendingInvites.get(inviteId);
-
         if (!inviteData) return socket.emit('invite_error', '邀请已过期');
         pendingInvites.delete(inviteId); 
 
-        // 检查发起者是否还在等待
         const isInviterAvailable = waitingQueue.some(u => u.id === inviterId);
         const inviterSocket = io.sockets.sockets.get(inviterId);
-        const { keyword, info } = inviteData; 
-
         if (inviterSocket && isInviterAvailable) {
-            // ✅ 匹配成功
-            // 1. 把发起者移除队列
-            waitingQueue = waitingQueue.filter(u => u.id !== inviterId);
-            
-            // 2. 🔴 关键补充：把接受者(我自己)也从队列移除 
-            // (因为我可能也正在排队搜别的东西)
-            waitingQueue = waitingQueue.filter(u => u.id !== socket.id);
-            
-            executeMatch(
-                { id: inviterId, socket: inviterSocket, keyword: keyword },
-                { id: socket.id, socket: socket },
-                info
-            );
+            waitingQueue = waitingQueue.filter(u => u.id !== inviterId && u.id !== socket.id);
+            executeMatch({ id: inviterId, socket: inviterSocket, keyword: inviteData.keyword }, { id: socket.id, socket: socket }, inviteData.info);
         } else {
-            socket.emit('invite_error', '手慢了，对方已匹配到其他人');
+            socket.emit('invite_error', '手慢了，对方已离开');
         }
     });
 
-    socket.on('decline_invite', (data) => {
-        const inviteId = `${data.inviterId}_to_${socket.id}`;
-        pendingInvites.delete(inviteId);
-    });
-
+    socket.on('decline_invite', (data) => pendingInvites.delete(`${data.inviterId}_to_${socket.id}`));
     socket.on('chat_message', (d) => socket.to(d.room).emit('message_received', d));
-    socket.on('typing', (d) => socket.to(d.room).emit('partner_typing', d.isTyping));
+    socket.on('typing', (d) => socket.to(d.room).emit('partner_typing', d));
     socket.on('rejoin_room', (r) => socket.join(r));
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-    console.log(`🚀 服务启动: http://localhost:${PORT}`);
-});
+server.listen(PORT, () => console.log(`🚀 服务器运行中: http://localhost:${PORT}`));
